@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>관세청 과세환율 기준 150달러 이하 주문 그룹 추천</title>
+  <style>
+    :root { color-scheme: light; --line:#d7dde5; --text:#1f2937; --muted:#667085; --ok:#067647; --warn:#b54708; --bg:#f6f8fb; }
+    body { margin:0; background:var(--bg); color:var(--text); font-family:Arial, "Noto Sans KR", sans-serif; line-height:1.5; }
+    main { max-width:1080px; margin:0 auto; padding:32px 18px; }
+    h1 { margin:0 0 8px; font-size:26px; }
+    h2 { margin:28px 0 10px; font-size:20px; }
+    .note, .summary, .card { background:#fff; border:1px solid var(--line); border-radius:8px; padding:16px; }
+    .note { margin:14px 0; color:var(--muted); }
+    .summary { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:12px; margin:18px 0; }
+    .metric { border-left:4px solid #3b82f6; padding-left:12px; }
+    .metric b { display:block; font-size:20px; color:var(--text); }
+    .ok { color:var(--ok); font-weight:700; }
+    .warn { color:var(--warn); font-weight:700; }
+    table { width:100%; border-collapse:collapse; background:#fff; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+    th, td { border-bottom:1px solid var(--line); padding:10px 12px; text-align:left; vertical-align:top; }
+    th { background:#eef2f7; font-size:13px; }
+    td.num, th.num { text-align:right; white-space:nowrap; }
+    tr:last-child td { border-bottom:0; }
+    .total-row td { background:#f9fafb; font-weight:700; }
+    .badge { display:inline-block; border-radius:999px; padding:2px 8px; background:#e7f6ed; color:var(--ok); font-size:12px; font-weight:700; }
+    .alt { margin-top:18px; }
+    @media (max-width:760px) { .summary { grid-template-columns:1fr 1fr; } th, td { padding:8px; font-size:13px; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>관세청 과세환율 기준 150달러 이하 주문 그룹 추천</h1>
+  <p class="note">
+    기준: 장바구니에 표시된 상품가 JPY 보조가격 기준, 배송비·포인트·쿠폰 제외.
+    환율은 <a href="https://www.forwarder.kr/curr/index.php?curr=ex_rate">관세청 고시환율</a>
+    적용기간 2026-04-26 ~ 2026-05-02의 수입환율 기준입니다.
+    USD 1 = 1,476.92원, JPY 1 = 9.272원이므로 150 USD 한도는 221,538원, 약 23,893 JPY입니다.
+  </p>
+
+  <section class="summary" aria-label="요약">
+    <div class="metric"><span>전체 상품가</span><b>42,699 JPY</b><small>약 268.06 USD</small></div>
+    <div class="metric"><span>단일 주문 가능 여부</span><b class="warn">불가</b><small>150 USD 초과</small></div>
+    <div class="metric"><span>필요 주문 수</span><b>2회</b><small>수량 분할 기준</small></div>
+    <div class="metric"><span>권장 방식</span><b class="ok">균등 분할</b><small>각 주문 약 134.03 USD</small></div>
+  </section>
+
+  <h2>권장안: 수량을 나눠 2개 주문으로 진행</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>주문</th>
+        <th>상품번호</th>
+        <th>상품명</th>
+        <th class="num">수량</th>
+        <th class="num">단가(JPY)</th>
+        <th class="num">소계(JPY)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td rowspan="8"><b>주문 A</b><br><span class="badge">약 134.03 USD</span><br><small>여유 약 15.97 USD</small></td><td>13225MY9003</td><td>HONDA OEM BearingB, connecting</td><td class="num">2</td><td class="num">1,061</td><td class="num">2,122</td></tr>
+      <tr><td>13225ML0405</td><td>HONDA OEM BearingB, connecting</td><td class="num">4</td><td class="num">1,522</td><td class="num">6,088</td></tr>
+      <tr><td>99103-MT2-0350</td><td>HONDA OEM Jet, Slow #35</td><td class="num">1</td><td class="num">831</td><td class="num">831</td></tr>
+      <tr><td>91331PC9003</td><td>HONDA OEM O-Ring 21.2X2.4</td><td class="num">1</td><td class="num">209</td><td class="num">209</td></tr>
+      <tr><td>91311MCE900</td><td>HONDA OEM O-ring 47.5X2</td><td class="num">1</td><td class="num">287</td><td class="num">287</td></tr>
+      <tr><td>13011MV4305</td><td>HONDA OEM Ring Set, Piston Std</td><td class="num">2</td><td class="num">5,599</td><td class="num">11,198</td></tr>
+      <tr><td>91310KT8003</td><td>HONDA OEM O-Ring 74.5X2</td><td class="num">1</td><td class="num">615</td><td class="num">615</td></tr>
+      <tr class="total-row"><td colspan="4">주문 A 합계 / 약 197,957원</td><td class="num">21,350</td></tr>
+
+      <tr><td rowspan="8"><b>주문 B</b><br><span class="badge">약 134.03 USD</span><br><small>여유 약 15.97 USD</small></td><td>13225MY9003</td><td>HONDA OEM BearingB, connecting</td><td class="num">2</td><td class="num">1,061</td><td class="num">2,122</td></tr>
+      <tr><td>99103-MT2-0350</td><td>HONDA OEM Jet, Slow #35</td><td class="num">3</td><td class="num">831</td><td class="num">2,493</td></tr>
+      <tr><td>91301147023</td><td>HONDA OEM O-Ring 18.3X2.3</td><td class="num">2</td><td class="num">401</td><td class="num">802</td></tr>
+      <tr><td>13011MV4305</td><td>HONDA OEM Ring Set, Piston Std</td><td class="num">2</td><td class="num">5,599</td><td class="num">11,198</td></tr>
+      <tr><td>91302MB0013</td><td>HONDA OEM O-Ring 32.95X2.62</td><td class="num">1</td><td class="num">293</td><td class="num">293</td></tr>
+      <tr><td>11632MY7000</td><td>HONDA OEM Gasket, Shift Cover</td><td class="num">1</td><td class="num">1,508</td><td class="num">1,508</td></tr>
+      <tr><td>12391MR8000</td><td>HONDA OEM Gasket, Cylinder head</td><td class="num">1</td><td class="num">2,933</td><td class="num">2,933</td></tr>
+      <tr class="total-row"><td colspan="4">주문 B 합계 / 약 197,948원</td><td class="num">21,349</td></tr>
+    </tbody>
+  </table>
+
+  <section class="card alt">
+    <h2>수량 분할이 번거로울 때의 대안</h2>
+    <p>
+      Ring Set, Piston Std(13011MV4305) 4개만 별도 주문하면 22,396 JPY, 약 140.60 USD입니다.
+      나머지 전부는 20,303 JPY, 약 127.46 USD입니다.
+      다만 첫 주문의 여유가 약 9.40 USD뿐이라, 위 권장안처럼 수량을 2개씩 나누는 방식이 더 안전합니다.
+    </p>
+  </section>
+</main>
+</body>
+</html>
