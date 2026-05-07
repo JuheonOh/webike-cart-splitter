@@ -82,6 +82,10 @@
     button.secondary {
       background: #475467;
     }
+    button:disabled {
+      background: #98a2b3;
+      cursor: not-allowed;
+    }
     button:focus-visible,
     input:focus-visible,
     textarea:focus-visible {
@@ -262,6 +266,7 @@
       <textarea id="cartHtml" spellcheck="false" placeholder="Webike 장바구니의 table-cart HTML을 여기에 붙여넣으세요."></textarea>
       <div class="button-row">
         <button type="button" id="analyzeButton">분석하기</button>
+        <button type="button" id="exportXlsxButton" disabled>XLSX 내보내기</button>
         <button type="button" class="secondary" id="clearButton">초기화</button>
       </div>
       <div id="errorBox" class="error-box" role="alert"></div>
@@ -309,6 +314,8 @@
 <script>
   const $ = (selector) => document.querySelector(selector);
   const formatter = new Intl.NumberFormat("ko-KR");
+  let latestAnalysis = null;
+  const XLSX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
   function toNumber(value) {
     const number = Number(String(value || "").replace(/,/g, "").trim());
@@ -329,6 +336,470 @@
       minimumFractionDigits: digits,
       maximumFractionDigits: digits,
     });
+  }
+
+  function setExportEnabled(enabled) {
+    $("#exportXlsxButton").disabled = !enabled;
+  }
+
+  function resetExportData() {
+    latestAnalysis = null;
+    setExportEnabled(false);
+  }
+
+  function escapeXml(value) {
+    return String(value ?? "").replace(/[<>&'"]/g, (char) => ({
+      "<": "&lt;",
+      ">": "&gt;",
+      "&": "&amp;",
+      "'": "&apos;",
+      '"': "&quot;",
+    }[char]));
+  }
+
+  function xlsxCell(value, style = "", type = "") {
+    return { value, style, type };
+  }
+
+  function pad(number) {
+    return String(number).padStart(2, "0");
+  }
+
+  function makeXlsxFileName() {
+    const now = new Date();
+    return [
+      "webike_cart_groups_",
+      now.getFullYear(),
+      pad(now.getMonth() + 1),
+      pad(now.getDate()),
+      "_",
+      pad(now.getHours()),
+      pad(now.getMinutes()),
+      ".xlsx",
+    ].join("");
+  }
+
+  function groupTotals(group, settings) {
+    const totalJpy = group.reduce((sum, item) => sum + item.totalJpy, 0);
+    const totalKrw = totalJpy * settings.jpyKrw;
+    const totalUsd = totalKrw / settings.usdKrw;
+    return {
+      totalJpy,
+      totalKrw,
+      totalUsd,
+      marginUsd: settings.limitUsd - totalUsd,
+      marginKrw: (settings.limitUsd * settings.usdKrw) - totalKrw,
+    };
+  }
+
+  function buildSummaryRows(products, recommendation, settings) {
+    const totalKrw = recommendation.totalJpy * settings.jpyKrw;
+    const totalUsd = totalKrw / settings.usdKrw;
+    return [
+      [xlsxCell("항목", "header"), xlsxCell("값", "header")],
+      [xlsxCell("면세 기준(USD)", "label"), xlsxCell(settings.limitUsd, "decimal")],
+      [xlsxCell("USD 수입환율(원)", "label"), xlsxCell(settings.usdKrw, "decimal")],
+      [xlsxCell("JPY 수입환율(원)", "label"), xlsxCell(settings.jpyKrw, "decimal")],
+      [xlsxCell("JPY 한도", "label"), xlsxCell(Math.floor(settings.limitJpy), "integer")],
+      [xlsxCell("전체 상품가 JPY", "label"), xlsxCell(recommendation.totalJpy, "integer")],
+      [xlsxCell("전체 상품가 USD", "label"), xlsxCell(totalUsd, "decimal")],
+      [xlsxCell("전체 상품가 KRW", "label"), xlsxCell(Math.round(totalKrw), "integer")],
+      [xlsxCell("추출 상품 수", "label"), xlsxCell(products.length, "integer")],
+      [xlsxCell("계산 단위 수", "label"), xlsxCell(recommendation.atoms.length, "integer")],
+      [xlsxCell("추천 주문 수", "label"), xlsxCell(recommendation.groups.length, "integer")],
+      [xlsxCell("분할 상태", "label"), xlsxCell(recommendation.groups.length ? "가능" : "확인 필요")],
+    ];
+  }
+
+  function buildGroupRows(products, recommendation, settings) {
+    const productHeader = [
+      xlsxCell("주문그룹", "header"),
+      xlsxCell("상품번호", "header"),
+      xlsxCell("상품명", "header"),
+      xlsxCell("수량", "header"),
+      xlsxCell("단가JPY", "header"),
+      xlsxCell("소계JPY", "header"),
+      xlsxCell("소계KRW", "header"),
+    ];
+    const rows = [];
+
+    if (recommendation.groups.length) {
+      recommendation.groups.forEach((group, index) => {
+        const totals = groupTotals(group, settings);
+        const groupItems = aggregateGroup(group);
+        const summaryRows = [
+          [xlsxCell("그룹합계JPY", "label"), xlsxCell(totals.totalJpy, "totalInteger")],
+          [xlsxCell("그룹합계USD", "label"), xlsxCell(totals.totalUsd, "totalDecimal")],
+          [xlsxCell("그룹합계KRW", "label"), xlsxCell(Math.round(totals.totalKrw), "totalInteger")],
+          [xlsxCell("여유USD", "label"), xlsxCell(totals.marginUsd, "totalDecimal")],
+          [xlsxCell("여유KRW", "label"), xlsxCell(Math.round(totals.marginKrw), "totalInteger")],
+        ];
+        const bodyRowCount = Math.max(groupItems.length, summaryRows.length);
+
+        rows.push([
+          ...productHeader,
+          xlsxCell("", "boxSpacer"),
+          xlsxCell(`주문 ${index + 1} 요약`, "totalText"),
+          xlsxCell("", "totalText"),
+        ]);
+        for (let rowIndex = 0; rowIndex < bodyRowCount; rowIndex += 1) {
+          const item = groupItems[rowIndex];
+          const productCells = item ? [
+            xlsxCell(index + 1, "boxInteger"),
+            xlsxCell(item.code, "boxText"),
+            xlsxCell(item.name, "boxText"),
+            xlsxCell(item.quantity, "boxInteger"),
+            xlsxCell(item.unitJpy, "boxInteger"),
+            xlsxCell(item.subtotalJpy, "boxInteger"),
+            xlsxCell(Math.round(item.subtotalJpy * settings.jpyKrw), "boxInteger"),
+          ] : Array.from({ length: productHeader.length }, () => xlsxCell("", "boxSpacer"));
+          const summaryCells = summaryRows[rowIndex] || [xlsxCell("", "boxSpacer"), xlsxCell("", "boxSpacer")];
+          rows.push([
+            ...productCells,
+            xlsxCell("", "boxSpacer"),
+            ...summaryCells,
+          ]);
+        }
+        if (index < recommendation.groups.length - 1) {
+          rows.push([]);
+        }
+      });
+      return rows;
+    }
+
+    rows.push(productHeader);
+    products.forEach((item) => {
+      rows.push([
+        xlsxCell("", "boxSpacer"),
+        xlsxCell(item.code, "boxText"),
+        xlsxCell(item.name, "boxText"),
+        xlsxCell(item.quantity, "boxInteger"),
+        xlsxCell(item.unitJpy, "boxInteger"),
+        xlsxCell(item.totalJpy, "boxInteger"),
+        xlsxCell(Math.round(item.totalJpy * settings.jpyKrw), "boxInteger"),
+      ]);
+    });
+    return rows;
+  }
+
+  function buildProductRows(products, settings) {
+    const rows = [[
+      xlsxCell("상품번호", "header"),
+      xlsxCell("상품명", "header"),
+      xlsxCell("수량", "header"),
+      xlsxCell("단가JPY", "header"),
+      xlsxCell("소계JPY", "header"),
+      xlsxCell("소계KRW", "header"),
+    ]];
+
+    products.forEach((item) => {
+      rows.push([
+        xlsxCell(item.code),
+        xlsxCell(item.name),
+        xlsxCell(item.quantity, "integer"),
+        xlsxCell(item.unitJpy, "integer"),
+        xlsxCell(item.totalJpy, "integer"),
+        xlsxCell(Math.round(item.totalJpy * settings.jpyKrw), "integer"),
+      ]);
+    });
+    return rows;
+  }
+
+  function styleId(style) {
+    return {
+      header: 1,
+      integer: 2,
+      decimal: 3,
+      label: 4,
+      totalText: 5,
+      totalInteger: 6,
+      totalDecimal: 7,
+      boxText: 8,
+      boxSpacer: 8,
+      boxInteger: 9,
+    }[style] || 0;
+  }
+
+  function columnName(index) {
+    let name = "";
+    while (index > 0) {
+      const remainder = (index - 1) % 26;
+      name = String.fromCharCode(65 + remainder) + name;
+      index = Math.floor((index - 1) / 26);
+    }
+    return name;
+  }
+
+  function worksheetXml(rows, widths) {
+    const cols = widths.map((width, index) => (
+      `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`
+    )).join("");
+    const sheetRows = rows.map((row, rowIndex) => {
+      const cells = row.map((cell, cellIndex) => {
+        const ref = `${columnName(cellIndex + 1)}${rowIndex + 1}`;
+        const style = styleId(cell.style);
+        const styleAttr = style ? ` s="${style}"` : "";
+        if (cell.value === "" || cell.value === null || cell.value === undefined) {
+          return style ? `<c r="${ref}"${styleAttr}/>` : "";
+        }
+        if ((cell.type === "number" || typeof cell.value === "number") && Number.isFinite(Number(cell.value))) {
+          return `<c r="${ref}"${styleAttr}><v>${Number(cell.value)}</v></c>`;
+        }
+        const text = escapeXml(cell.value);
+        const spaceAttr = /^\s|\s$/.test(String(cell.value)) ? ' xml:space="preserve"' : "";
+        return `<c r="${ref}" t="inlineStr"${styleAttr}><is><t${spaceAttr}>${text}</t></is></c>`;
+      }).join("");
+      return `<row r="${rowIndex + 1}">${cells}</row>`;
+    }).join("");
+
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <cols>${cols}</cols>
+  <sheetData>${sheetRows}</sheetData>
+</worksheet>`;
+  }
+
+  function workbookXml() {
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets>
+    <sheet name="요약" sheetId="1" r:id="rId1"/>
+    <sheet name="추천그룹" sheetId="2" r:id="rId2"/>
+    <sheet name="추출상품" sheetId="3" r:id="rId3"/>
+  </sheets>
+</workbook>`;
+  }
+
+  function workbookRelsXml() {
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet3.xml"/>
+  <Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>`;
+  }
+
+  function rootRelsXml() {
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>`;
+  }
+
+  function contentTypesXml() {
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/worksheets/sheet3.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+</Types>`;
+  }
+
+  function stylesXml() {
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <numFmts count="2">
+    <numFmt numFmtId="164" formatCode="#,##0"/>
+    <numFmt numFmtId="165" formatCode="#,##0.00"/>
+  </numFmts>
+  <fonts count="3">
+    <font><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/></font>
+    <font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/><family val="2"/></font>
+    <font><b/><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/></font>
+  </fonts>
+  <fills count="4">
+    <fill><patternFill patternType="none"/></fill>
+    <fill><patternFill patternType="gray125"/></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FF1264A3"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFE7F0FA"/><bgColor indexed="64"/></patternFill></fill>
+  </fills>
+  <borders count="2">
+    <border><left/><right/><top/><bottom/><diagonal/></border>
+    <border>
+      <left style="thin"><color rgb="FFD9E0E8"/></left>
+      <right style="thin"><color rgb="FFD9E0E8"/></right>
+      <top style="thin"><color rgb="FFD9E0E8"/></top>
+      <bottom style="thin"><color rgb="FFD9E0E8"/></bottom>
+      <diagonal/>
+    </border>
+  </borders>
+  <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+  <cellXfs count="10">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center"/></xf>
+    <xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="right"/></xf>
+    <xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="right"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/>
+    <xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/>
+    <xf numFmtId="164" fontId="2" fillId="3" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right"/></xf>
+    <xf numFmtId="165" fontId="2" fillId="3" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"/>
+    <xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right"/></xf>
+  </cellXfs>
+  <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+</styleSheet>`;
+  }
+
+  const CRC_TABLE = (() => {
+    const table = [];
+    for (let index = 0; index < 256; index += 1) {
+      let value = index;
+      for (let bit = 0; bit < 8; bit += 1) {
+        value = (value & 1) ? (0xedb88320 ^ (value >>> 1)) : (value >>> 1);
+      }
+      table[index] = value >>> 0;
+    }
+    return table;
+  })();
+
+  function crc32(bytes) {
+    let crc = 0xffffffff;
+    bytes.forEach((byte) => {
+      crc = CRC_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+    });
+    return (crc ^ 0xffffffff) >>> 0;
+  }
+
+  function dosTimeDate(date) {
+    return {
+      time: (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2),
+      date: ((date.getFullYear() - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate(),
+    };
+  }
+
+  function writeUint16(target, value) {
+    target.push(value & 0xff, (value >>> 8) & 0xff);
+  }
+
+  function writeUint32(target, value) {
+    target.push(value & 0xff, (value >>> 8) & 0xff, (value >>> 16) & 0xff, (value >>> 24) & 0xff);
+  }
+
+  function bytesFromText(text) {
+    return new TextEncoder().encode(text);
+  }
+
+  function combineBytes(parts) {
+    const size = parts.reduce((sum, part) => sum + part.length, 0);
+    const output = new Uint8Array(size);
+    let offset = 0;
+    parts.forEach((part) => {
+      output.set(part, offset);
+      offset += part.length;
+    });
+    return output;
+  }
+
+  function createZip(files) {
+    const createdAt = dosTimeDate(new Date());
+    const localParts = [];
+    const centralParts = [];
+    let offset = 0;
+
+    files.forEach((file) => {
+      const nameBytes = bytesFromText(file.name);
+      const dataBytes = typeof file.content === "string" ? bytesFromText(file.content) : file.content;
+      const crc = crc32(dataBytes);
+      const localHeader = [];
+
+      writeUint32(localHeader, 0x04034b50);
+      writeUint16(localHeader, 20);
+      writeUint16(localHeader, 0x0800);
+      writeUint16(localHeader, 0);
+      writeUint16(localHeader, createdAt.time);
+      writeUint16(localHeader, createdAt.date);
+      writeUint32(localHeader, crc);
+      writeUint32(localHeader, dataBytes.length);
+      writeUint32(localHeader, dataBytes.length);
+      writeUint16(localHeader, nameBytes.length);
+      writeUint16(localHeader, 0);
+      const localRecord = combineBytes([new Uint8Array(localHeader), nameBytes, dataBytes]);
+      localParts.push(localRecord);
+
+      const centralHeader = [];
+      writeUint32(centralHeader, 0x02014b50);
+      writeUint16(centralHeader, 20);
+      writeUint16(centralHeader, 20);
+      writeUint16(centralHeader, 0x0800);
+      writeUint16(centralHeader, 0);
+      writeUint16(centralHeader, createdAt.time);
+      writeUint16(centralHeader, createdAt.date);
+      writeUint32(centralHeader, crc);
+      writeUint32(centralHeader, dataBytes.length);
+      writeUint32(centralHeader, dataBytes.length);
+      writeUint16(centralHeader, nameBytes.length);
+      writeUint16(centralHeader, 0);
+      writeUint16(centralHeader, 0);
+      writeUint16(centralHeader, 0);
+      writeUint16(centralHeader, 0);
+      writeUint32(centralHeader, 0);
+      writeUint32(centralHeader, offset);
+      centralParts.push(combineBytes([new Uint8Array(centralHeader), nameBytes]));
+      offset += localRecord.length;
+    });
+
+    const centralDirectory = combineBytes(centralParts);
+    const endRecord = [];
+    writeUint32(endRecord, 0x06054b50);
+    writeUint16(endRecord, 0);
+    writeUint16(endRecord, 0);
+    writeUint16(endRecord, files.length);
+    writeUint16(endRecord, files.length);
+    writeUint32(endRecord, centralDirectory.length);
+    writeUint32(endRecord, offset);
+    writeUint16(endRecord, 0);
+
+    return combineBytes([...localParts, centralDirectory, new Uint8Array(endRecord)]);
+  }
+
+  function buildXlsxBytes(products, recommendation, settings) {
+    const files = [
+      { name: "[Content_Types].xml", content: contentTypesXml() },
+      { name: "_rels/.rels", content: rootRelsXml() },
+      { name: "xl/workbook.xml", content: workbookXml() },
+      { name: "xl/_rels/workbook.xml.rels", content: workbookRelsXml() },
+      { name: "xl/styles.xml", content: stylesXml() },
+      {
+        name: "xl/worksheets/sheet1.xml",
+        content: worksheetXml(buildSummaryRows(products, recommendation, settings), [24, 18]),
+      },
+      {
+        name: "xl/worksheets/sheet2.xml",
+        content: worksheetXml(buildGroupRows(products, recommendation, settings), [12, 20, 42, 10, 12, 12, 14, 4, 16, 16]),
+      },
+      {
+        name: "xl/worksheets/sheet3.xml",
+        content: worksheetXml(buildProductRows(products, settings), [20, 48, 10, 12, 12, 14]),
+      },
+    ];
+    return createZip(files);
+  }
+
+  function downloadXlsx() {
+    if (!latestAnalysis) {
+      showError("먼저 분석을 실행해 주세요.");
+      return;
+    }
+
+    const xlsxBytes = buildXlsxBytes(
+      latestAnalysis.products,
+      latestAnalysis.recommendation,
+      latestAnalysis.settings,
+    );
+    const blob = new Blob([xlsxBytes], { type: XLSX_MIME_TYPE });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.href = url;
+    link.download = makeXlsxFileName();
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   }
 
   function parseProducts(html) {
@@ -639,6 +1110,7 @@
 
   function analyze() {
     clearError();
+    resetExportData();
     const html = $("#cartHtml").value.trim();
     const settings = getSettings();
 
@@ -658,6 +1130,8 @@
     }
 
     const recommendation = recommendGroups(products, settings);
+    latestAnalysis = { products, recommendation, settings };
+    setExportEnabled(true);
     $("#resultArea").innerHTML = [
       renderSummary(products, recommendation, settings),
       renderGroups(recommendation, settings),
@@ -666,10 +1140,16 @@
   }
 
   $("#analyzeButton").addEventListener("click", analyze);
+  $("#exportXlsxButton").addEventListener("click", downloadXlsx);
   $("#clearButton").addEventListener("click", () => {
     $("#cartHtml").value = "";
     clearError();
+    resetExportData();
     $("#resultArea").innerHTML = '<div class="empty">분석 결과가 여기에 표시됩니다.</div>';
+  });
+  ["cartHtml", "limitUsd", "usdKrw", "jpyKrw", "maxGroups", "splitQuantity"].forEach((id) => {
+    $(`#${id}`).addEventListener("input", resetExportData);
+    $(`#${id}`).addEventListener("change", resetExportData);
   });
 </script>
 </body>
