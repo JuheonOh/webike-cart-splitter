@@ -314,6 +314,7 @@ function addManualRow(values = {}) {
   row.querySelector(".manual-quantity").value = values.quantity || 1;
   row.querySelector(".manual-unit-jpy").value = values.unitJpy || "";
   updateManualRemoveButtons();
+  return row;
 }
 
 function clearManualRows() {
@@ -323,12 +324,33 @@ function clearManualRows() {
 
 function fillManualInputRows(rows) {
   $("#manualRows").innerHTML = "";
-  rows.forEach((row) => addManualRow(row));
-  if (!rows.length) addManualRow();
+  const createdRows = rows.map((row) => addManualRow(row));
+  if (!rows.length) createdRows.push(addManualRow());
+  return createdRows;
 }
 
 function fillManualRows(products) {
-  fillManualInputRows(manualRowsFromProducts(products));
+  return fillManualInputRows(manualRowsFromProducts(products));
+}
+
+function highlightManualRows(rows) {
+  rows.forEach((row) => {
+    row.classList.remove("manual-row-imported");
+    void row.offsetWidth;
+    row.classList.add("manual-row-imported");
+  });
+  window.setTimeout(() => {
+    rows.forEach((row) => row.classList.remove("manual-row-imported"));
+  }, 2600);
+}
+
+function focusFirstManualRow(rows) {
+  const firstEditableInput = rows[0]?.querySelector(".manual-quantity") ||
+    rows[0]?.querySelector("input");
+  if (!firstEditableInput) return;
+
+  firstEditableInput.focus({ preventScroll: true });
+  firstEditableInput.select?.();
 }
 
 function copyLatestProductsToManual() {
@@ -336,10 +358,12 @@ function copyLatestProductsToManual() {
     showError("직접 입력으로 가져올 상품이 없습니다.");
     return;
   }
-  fillManualRows(latestAnalysis.products);
+  const importedRows = fillManualRows(latestAnalysis.products);
   document.querySelector("input[name='inputMode'][value='manual']").checked = true;
   setInputMode("manual");
   $("#manualInputPanel").scrollIntoView({ behavior: "smooth", block: "start" });
+  highlightManualRows(importedRows);
+  window.requestAnimationFrame(() => focusFirstManualRow(importedRows));
 }
 
 function applyBulkPasteToManual() {

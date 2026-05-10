@@ -168,6 +168,12 @@ a { color: var(--accent); }
 .manual-table input {
   height: 36px;
 }
+.manual-row-imported td {
+  animation: manualRowImported 2.4s ease-out;
+}
+.manual-row-imported input {
+  border-color: rgba(18, 100, 163, .7);
+}
 .bulk-paste {
   margin-bottom: 14px;
 }
@@ -300,6 +306,11 @@ tr:last-child td { border-bottom: 0; }
   margin-top: 12px;
   color: var(--muted);
   font-size: 12px;
+}
+@keyframes manualRowImported {
+  0% { background: #e7f0fa; }
+  70% { background: #e7f0fa; }
+  100% { background: transparent; }
 }
 
 @media (max-width: 920px) {
