@@ -425,6 +425,14 @@
   const formatter = new Intl.NumberFormat("ko-KR");
   let latestAnalysis = null;
   const XLSX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  const SETTINGS_STORAGE_KEY = "webike-cart-splitter-settings-v1";
+  const DEFAULT_SETTINGS = {
+    limitUsd: 150,
+    usdKrw: 1476.92,
+    jpyKrw: 9.272,
+    maxGroups: 8,
+    splitQuantity: true,
+  };
   const CART_ROW_SELECTORS = [
     ".table-cart tbody tr.item",
     ".table-cart tbody tr[id^='product-item']",
@@ -503,6 +511,46 @@
   function toNumber(value) {
     const number = Number(String(value || "").replace(/,/g, "").trim());
     return Number.isFinite(number) ? number : 0;
+  }
+
+  function positiveNumber(value, fallback) {
+    const number = toNumber(value);
+    return number > 0 ? number : fallback;
+  }
+
+  function positiveInteger(value, fallback) {
+    const number = Math.round(toNumber(value));
+    return number > 0 ? number : fallback;
+  }
+
+  function normalizeStoredSettings(settings) {
+    const source = settings && typeof settings === "object" ? settings : {};
+    return {
+      limitUsd: positiveNumber(source.limitUsd, DEFAULT_SETTINGS.limitUsd),
+      usdKrw: positiveNumber(source.usdKrw, DEFAULT_SETTINGS.usdKrw),
+      jpyKrw: positiveNumber(source.jpyKrw, DEFAULT_SETTINGS.jpyKrw),
+      maxGroups: positiveInteger(source.maxGroups, DEFAULT_SETTINGS.maxGroups),
+      splitQuantity: typeof source.splitQuantity === "boolean" ? source.splitQuantity : DEFAULT_SETTINGS.splitQuantity,
+    };
+  }
+
+  function readStoredSettings(storage) {
+    try {
+      const target = storage || window.localStorage;
+      return normalizeStoredSettings(JSON.parse(target.getItem(SETTINGS_STORAGE_KEY) || "{}"));
+    } catch {
+      return { ...DEFAULT_SETTINGS };
+    }
+  }
+
+  function writeStoredSettings(settings, storage) {
+    try {
+      const target = storage || window.localStorage;
+      target.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(normalizeStoredSettings(settings)));
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   function firstNumber(value) {
@@ -1545,6 +1593,29 @@
     };
   }
 
+  function getSettingsFormValues() {
+    return {
+      limitUsd: $("#limitUsd").value,
+      usdKrw: $("#usdKrw").value,
+      jpyKrw: $("#jpyKrw").value,
+      maxGroups: $("#maxGroups").value,
+      splitQuantity: $("#splitQuantity").checked,
+    };
+  }
+
+  function applyStoredSettingsToForm() {
+    const settings = readStoredSettings();
+    $("#limitUsd").value = settings.limitUsd;
+    $("#usdKrw").value = settings.usdKrw;
+    $("#jpyKrw").value = settings.jpyKrw;
+    $("#maxGroups").value = settings.maxGroups;
+    $("#splitQuantity").checked = settings.splitQuantity;
+  }
+
+  function saveSettingsFromForm() {
+    writeStoredSettings(getSettingsFormValues());
+  }
+
   function getInputMode() {
     return document.querySelector("input[name='inputMode']:checked")?.value || "html";
   }
@@ -1686,6 +1757,7 @@
     ].join("");
   }
 
+  applyStoredSettingsToForm();
   clearManualRows();
   setInputMode(getInputMode());
 
@@ -1729,6 +1801,9 @@
   ["cartHtml", "bulkPasteInput", "limitUsd", "usdKrw", "jpyKrw", "maxGroups", "splitQuantity"].forEach((id) => {
     $(`#${id}`).addEventListener("input", resetExportData);
     $(`#${id}`).addEventListener("change", resetExportData);
+  });
+  ["limitUsd", "usdKrw", "jpyKrw", "maxGroups", "splitQuantity"].forEach((id) => {
+    $(`#${id}`).addEventListener("change", saveSettingsFromForm);
   });
 </script>
 </body>

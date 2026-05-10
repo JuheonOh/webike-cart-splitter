@@ -8,7 +8,7 @@ const scriptMatch = html.match(/<script>([\s\S]*)<\/script>/);
 
 assert(scriptMatch, "inline script not found");
 
-const runtimeScript = scriptMatch[1].replace(/\s*clearManualRows\(\);[\s\S]*$/, "");
+const runtimeScript = scriptMatch[1].replace(/\s*applyStoredSettingsToForm\(\);[\s\S]*$/, "");
 const api = new Function(`${runtimeScript}
 return {
   buildXlsxBytes,
@@ -17,10 +17,13 @@ return {
   manualRowsFromProducts,
   manualRowsFromPastedText,
   normalizeManualProducts,
+  normalizeStoredSettings,
   parseJpy,
   recommendGroups,
   renderGroups,
   renderProducts,
+  readStoredSettings,
+  writeStoredSettings,
 };
 `)();
 
@@ -69,6 +72,18 @@ function makeFakeRow({ id = "", text = "", dataset = {}, elements = {}, attrs = 
     },
     querySelector(selector) {
       return elements[selector] || null;
+    },
+  };
+}
+
+function makeMemoryStorage(initialValue = "") {
+  const values = new Map(initialValue ? [["webike-cart-splitter-settings-v1", initialValue]] : []);
+  return {
+    getItem(key) {
+      return values.has(key) ? values.get(key) : null;
+    },
+    setItem(key, value) {
+      values.set(key, value);
     },
   };
 }
@@ -213,5 +228,42 @@ assert.deepStrictEqual(pastedCsv.errors, []);
 assert.deepStrictEqual(pastedCsv.rows, [
   { code: "C-003", name: "CSV, Item", quantity: "3", unitJpy: "2,000" },
 ]);
+
+assert.deepStrictEqual(api.normalizeStoredSettings({
+  limitUsd: "200",
+  usdKrw: "1500.5",
+  jpyKrw: "10.25",
+  maxGroups: "6",
+  splitQuantity: false,
+}), {
+  limitUsd: 200,
+  usdKrw: 1500.5,
+  jpyKrw: 10.25,
+  maxGroups: 6,
+  splitQuantity: false,
+});
+
+const settingsStorage = makeMemoryStorage();
+assert.strictEqual(api.writeStoredSettings({
+  limitUsd: "200",
+  usdKrw: "1500.5",
+  jpyKrw: "10.25",
+  maxGroups: "6",
+  splitQuantity: false,
+}, settingsStorage), true);
+assert.deepStrictEqual(api.readStoredSettings(settingsStorage), {
+  limitUsd: 200,
+  usdKrw: 1500.5,
+  jpyKrw: 10.25,
+  maxGroups: 6,
+  splitQuantity: false,
+});
+assert.deepStrictEqual(api.readStoredSettings(makeMemoryStorage("{bad json")), {
+  limitUsd: 150,
+  usdKrw: 1476.92,
+  jpyKrw: 9.272,
+  maxGroups: 8,
+  splitQuantity: true,
+});
 
 console.log("cart_group_calculator tests passed");
