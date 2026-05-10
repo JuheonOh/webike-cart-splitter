@@ -15,6 +15,7 @@ return {
   cartProductFromRow,
   groupTotals,
   manualRowsFromProducts,
+  manualRowsFromPastedText,
   normalizeManualProducts,
   parseJpy,
   recommendGroups,
@@ -195,5 +196,22 @@ assert.deepStrictEqual(
   api.normalizeManualProducts(copiedManualRows).products.map((item) => item.totalJpy),
   [4244, 6088],
 );
+
+const pastedTsv = api.manualRowsFromPastedText([
+  "상품번호\t상품명\t수량\t단가JPY",
+  "A-001\tTSV Item\t2\t1,500",
+  "B-002\tSecond Item\t1\t250",
+].join("\n"));
+assert.deepStrictEqual(pastedTsv.errors, []);
+assert.deepStrictEqual(pastedTsv.rows, [
+  { code: "A-001", name: "TSV Item", quantity: "2", unitJpy: "1,500" },
+  { code: "B-002", name: "Second Item", quantity: "1", unitJpy: "250" },
+]);
+
+const pastedCsv = api.manualRowsFromPastedText('"C-003","CSV, Item","3","2,000"');
+assert.deepStrictEqual(pastedCsv.errors, []);
+assert.deepStrictEqual(pastedCsv.rows, [
+  { code: "C-003", name: "CSV, Item", quantity: "3", unitJpy: "2,000" },
+]);
 
 console.log("cart_group_calculator tests passed");
