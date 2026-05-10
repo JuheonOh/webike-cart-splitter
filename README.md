@@ -26,8 +26,8 @@ Webike 장바구니 상품가를 관세청 과세환율 기준으로 나눠 보�
 - 출처: `https://www.forwarder.kr/curr/index.php?curr=ex_rate`
 - 대상: 미국 `USD`, 일본 `JPY`의 수입환율
 - 결과 파일: `data/exchange-rates.json`
-- GitHub Actions: `.github/workflows/update-exchange-rates.yml`
-- 수동 실행: GitHub Actions의 `update-exchange-rates` 워크플로우에서 `Run workflow`
+- GitHub Actions: `.github/workflows/deploy-pages.yml`
+- 수동 실행: GitHub Actions의 `deploy-pages` 워크플로우에서 `Run workflow`
 - 로컬 갱신:
 
 ```bash
@@ -37,9 +37,10 @@ node scripts/update-exchange-rates.js
 ## GitHub Pages 배포
 
 - 예상 URL: `https://juheonoh.github.io/webike-cart-splitter/`
-- GitHub 저장소 `Settings > Pages`에서 `Deploy from a branch`를 선택한다.
-- Branch는 `main`, folder는 `/ (root)`로 설정한다.
-- 별도 빌드 과정은 없다. 루트 `index.html`이 `cart_group_calculator.html`로 이동한다.
+- GitHub 저장소 `Settings > Pages`에서 Source를 `GitHub Actions`로 설정한다.
+- `deploy-pages` 워크플로우가 Pages artifact를 만들고 배포한다.
+- 배포 대상 파일은 `index.html`, `cart_group_calculator.html`, `.nojekyll`, `data/exchange-rates.json`이다.
+- `push`는 현재 파일을 배포하고, `schedule`/`workflow_dispatch`는 환율 JSON 갱신 후 배포한다.
 
 ## 계산 기준
 
@@ -59,7 +60,7 @@ JPY 한도 = 면세 기준 USD * USD 수입환율 / JPY 수입환율
 - `cart_group_calculator.html`: 실제 계산기
 - `data/exchange-rates.json`: GitHub Pages에서 읽는 USD/JPY 수입환율 데이터
 - `scripts/update-exchange-rates.js`: forwarder.kr 고시환율 HTML 파서
-- `.github/workflows/update-exchange-rates.yml`: 환율 JSON 자동 갱신 워크플로우
+- `.github/workflows/deploy-pages.yml`: 환율 JSON 자동 갱신과 GitHub Pages 배포 워크플로우
 - `tests/cart_group_calculator.test.js`: 계산 그룹, XLSX 생성, 직접 입력 정규화, CSV/TSV 붙여넣기, 결과 HTML escape 검증
 - `tests/update_exchange_rates.test.js`: forwarder.kr 고시환율 HTML 파싱 검증
 - `기록/20260506_webike_주문그룹_자동화_설계안.md`: 향후 자동화 설계안
