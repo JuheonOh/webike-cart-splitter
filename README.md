@@ -28,7 +28,6 @@ JPY 한도 = 면세 기준 USD * USD 수입환율 / JPY 수입환율
 ## 현재 파일
 
 - `cart_group_calculator.html`: 실제 계산기
-- `order_group_recommendation.html`: 특정 장바구니 예시를 고정 HTML로 정리한 참고 결과
 - `tests/cart_group_calculator.test.js`: 계산 그룹, XLSX 생성, 결과 HTML escape 검증
 - `기록/20260506_webike_주문그룹_자동화_설계안.md`: 향후 자동화 설계안
 
