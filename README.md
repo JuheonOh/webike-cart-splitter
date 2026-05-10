@@ -6,7 +6,7 @@ Webike 장바구니 상품가를 관세청 과세환율 기준으로 나눠 보�
 
 ## 사용 방법
 
-1. `cart_group_calculator.html`을 브라우저에서 연다.
+1. 로컬에서는 `cart_group_calculator.html`을 브라우저에서 연다. GitHub Pages 배포 후에는 저장소 Pages URL로 접속한다.
 2. 입력 방식을 선택한다.
    - `장바구니 HTML`: Webike 장바구니 페이지에서 상품 테이블 HTML을 복사해 붙여넣는다.
    - `직접 입력`: 상품번호, 상품명, 수량, 단가 JPY를 행 단위로 입력한다.
@@ -18,6 +18,13 @@ Webike 장바구니 상품가를 관세청 과세환율 기준으로 나눠 보�
 7. 필요하면 `XLSX 내보내기`로 결과를 저장한다.
 
 입력한 면세 기준, USD/JPY 수입환율, 최대 주문 수, 수량 분할 설정은 브라우저에 저장되어 다음 실행 때 복원됩니다.
+
+## GitHub Pages 배포
+
+- 예상 URL: `https://juheonoh.github.io/webike-cart-splitter/`
+- GitHub 저장소 `Settings > Pages`에서 `Deploy from a branch`를 선택한다.
+- Branch는 `main`, folder는 `/ (root)`로 설정한다.
+- 별도 빌드 과정은 없다. 루트 `index.html`이 `cart_group_calculator.html`로 이동한다.
 
 ## 계산 기준
 
@@ -33,6 +40,7 @@ JPY 한도 = 면세 기준 USD * USD 수입환율 / JPY 수입환율
 
 ## 현재 파일
 
+- `index.html`: GitHub Pages 진입점
 - `cart_group_calculator.html`: 실제 계산기
 - `tests/cart_group_calculator.test.js`: 계산 그룹, XLSX 생성, 직접 입력 정규화, CSV/TSV 붙여넣기, 결과 HTML escape 검증
 - `기록/20260506_webike_주문그룹_자동화_설계안.md`: 향후 자동화 설계안
