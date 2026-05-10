@@ -88,6 +88,97 @@ function makeMemoryStorage(initialValue = "") {
   };
 }
 
+function readFixture(name) {
+  return fs.readFileSync(path.join(__dirname, "fixtures", "webike-cart", name), "utf8");
+}
+
+function camelCaseDataName(name) {
+  return name.replace(/-([a-z])/g, (_, char) => char.toUpperCase());
+}
+
+function attrsFromTag(tag) {
+  const attrs = {};
+  const dataset = {};
+  for (const match of tag.matchAll(/([:\w-]+)="([^"]*)"/g)) {
+    attrs[match[1]] = match[2];
+    if (match[1].startsWith("data-")) {
+      dataset[camelCaseDataName(match[1].slice(5))] = match[2];
+    }
+  }
+  return { attrs, dataset };
+}
+
+function textByClass(html, className) {
+  const pattern = new RegExp(`<[^>]*class="[^"]*${className}[^"]*"[^>]*>([\\s\\S]*?)<\\/[^>]+>`, "i");
+  const match = html.match(pattern);
+  return match ? match[1].replace(/<[^>]+>/g, "").trim() : "";
+}
+
+function valueByClass(html, className) {
+  const pattern = new RegExp(`<input[^>]*class="[^"]*${className}[^"]*"[^>]*>`, "i");
+  const tag = html.match(pattern)?.[0] || "";
+  return attrsFromTag(tag).attrs.value || "";
+}
+
+function valueByName(html, name) {
+  const pattern = new RegExp(`<input[^>]*name="${name}"[^>]*>`, "i");
+  const tag = html.match(pattern)?.[0] || "";
+  return attrsFromTag(tag).attrs.value || "";
+}
+
+function addFixtureElement(elements, selector, values) {
+  if (values.text || values.value || Object.keys(values.dataset || {}).length || Object.keys(values.attrs || {}).length) {
+    elements[selector] = makeFakeElement(values);
+  }
+}
+
+function fixtureRows(name) {
+  const html = readFixture(name);
+  const rows = [];
+  for (const match of html.matchAll(/<tr([^>]*)>([\s\S]*?)<\/tr>/gi)) {
+    const { attrs, dataset } = attrsFromTag(`<tr${match[1]}>`);
+    const elements = {};
+    addFixtureElement(elements, ".product-code .code", { text: textByClass(match[2], "code") });
+    addFixtureElement(elements, ".product-name a", { text: textByClass(match[2], "product-name") });
+    addFixtureElement(elements, ".product-quantity", { value: valueByClass(match[2], "product-quantity") });
+    addFixtureElement(elements, ".qty-inp", { value: valueByClass(match[2], "qty-inp") });
+    addFixtureElement(elements, "input[name='quantity']", { value: valueByName(match[2], "quantity") });
+    addFixtureElement(elements, ".unit-sub-price", { text: textByClass(match[2], "unit-sub-price") });
+    addFixtureElement(elements, ".total-sub-price", { text: textByClass(match[2], "total-sub-price") });
+    rows.push(makeFakeRow({
+      id: attrs.id || "",
+      text: match[2].replace(/<[^>]+>/g, " "),
+      dataset,
+      attrs,
+      elements,
+    }));
+  }
+  for (const match of html.matchAll(/<div([^>]*class="[^"]*(?:cart-item|cart-list-item)[^"]*"[^>]*)>([\s\S]*?)<\/div>/gi)) {
+    const { attrs, dataset } = attrsFromTag(`<div${match[1]}>`);
+    const elements = {};
+    addFixtureElement(elements, ".item-name a", { text: textByClass(match[2], "item-name") });
+    addFixtureElement(elements, ".product-title", { text: textByClass(match[2], "product-title") });
+    addFixtureElement(elements, ".goods-name", { text: textByClass(match[2], "goods-name") });
+    addFixtureElement(elements, ".quantity", { text: textByClass(match[2], "quantity") });
+    addFixtureElement(elements, ".qty", { text: textByClass(match[2], "qty") });
+    addFixtureElement(elements, ".price", { text: textByClass(match[2], "price") });
+    rows.push(makeFakeRow({
+      id: attrs.id || "",
+      text: match[2].replace(/<[^>]+>/g, " "),
+      dataset,
+      attrs,
+      elements,
+    }));
+  }
+  return rows;
+}
+
+function productsFromFixture(name) {
+  return fixtureRows(name)
+    .map((row, index) => api.cartProductFromRow(row, index))
+    .filter(Boolean);
+}
+
 const sampleProducts = [
   makeProduct(0, "13225MY9003", "HONDA OEM BearingB, connecting", 4, 1061),
   makeProduct(1, "13225ML0405", "HONDA OEM BearingB, connecting", 4, 1522),
@@ -158,6 +249,61 @@ assert.deepStrictEqual(api.cartProductFromRow(alternateCartRow, 1), {
   unitJpy: 831,
   totalJpy: 1662,
 });
+
+const tableCartProducts = productsFromFixture("table-cart-current.html");
+assert.deepStrictEqual(tableCartProducts.map((item) => ({
+  code: item.code,
+  name: item.name,
+  quantity: item.quantity,
+  unitJpy: item.unitJpy,
+  totalJpy: item.totalJpy,
+})), [
+  {
+    code: "13225MY9003",
+    name: "HONDA OEM BearingB, connecting",
+    quantity: 4,
+    unitJpy: 1061,
+    totalJpy: 4244,
+  },
+  {
+    code: "99103-MT2-0350",
+    name: "HONDA OEM Jet, Slow #35",
+    quantity: 2,
+    unitJpy: 831,
+    totalJpy: 1662,
+  },
+]);
+
+const attributeCartProducts = productsFromFixture("data-attribute-cart.html");
+assert.deepStrictEqual(attributeCartProducts.map((item) => ({
+  code: item.code,
+  name: item.name,
+  quantity: item.quantity,
+  unitJpy: item.unitJpy,
+  totalJpy: item.totalJpy,
+})), [
+  {
+    code: "ALT-001",
+    name: "Attribute Price Item",
+    quantity: 2,
+    unitJpy: 1200,
+    totalJpy: 2400,
+  },
+  {
+    code: "ALT-002",
+    name: "Total Price Item",
+    quantity: 2,
+    unitJpy: 1250,
+    totalJpy: 2500,
+  },
+  {
+    code: "ALT-003",
+    name: "Yen Symbol Item",
+    quantity: 3,
+    unitJpy: 850,
+    totalJpy: 2550,
+  },
+]);
 
 const unsafeProducts = [
   makeProduct(0, "<img src=x onerror=alert(1)>", "<script>alert(1)</script>", 1, 100),

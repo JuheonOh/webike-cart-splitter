@@ -56,6 +56,7 @@ node tests/cart_group_calculator.test.js
 - CSV/TSV 붙여넣기가 직접 입력 행으로 변환되는지 확인
 - 환율과 주문 설정이 저장값으로 정규화되는지 확인
 - 장바구니 행에서 JPY/円/￥ 가격 표기를 파싱하는지 확인
+- Webike 장바구니 HTML fixture가 상품 목록으로 파싱되는지 확인
 - 붙여넣은 상품명/품번이 결과 영역에서 HTML로 실행되지 않도록 escape되는지 확인
 
 ## 방향
