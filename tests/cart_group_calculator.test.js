@@ -11,6 +11,7 @@ assert(scriptMatch, "inline script not found");
 const runtimeScript = scriptMatch[1].replace(/\s*clearManualRows\(\);[\s\S]*$/, "");
 const api = new Function(`${runtimeScript}
 return {
+  buildChecklistRows,
   buildXlsxBytes,
   cartProductFromRow,
   groupTotals,
@@ -19,6 +20,7 @@ return {
   normalizeManualProducts,
   parseJpy,
   recommendGroups,
+  renderChecklist,
   renderGroups,
   renderProducts,
 };
@@ -100,6 +102,8 @@ const xlsxBytes = api.buildXlsxBytes(sampleProducts, recommendation, settings);
 assert(xlsxBytes instanceof Uint8Array, "xlsx output must be bytes");
 assert(xlsxBytes.length > 1000, "xlsx output is unexpectedly small");
 assert.deepStrictEqual([...xlsxBytes.slice(0, 4)], [0x50, 0x4b, 0x03, 0x04]);
+const xlsxText = Buffer.from(xlsxBytes).toString("utf8");
+assert(xlsxText.includes("worksheets/sheet4.xml"), "xlsx must include checklist sheet");
 
 assert.strictEqual(api.parseJpy("JPY 1,250"), 1250);
 assert.strictEqual(api.parseJpy("1,250円"), 1250);
@@ -213,5 +217,16 @@ assert.deepStrictEqual(pastedCsv.errors, []);
 assert.deepStrictEqual(pastedCsv.rows, [
   { code: "C-003", name: "CSV, Item", quantity: "3", unitJpy: "2,000" },
 ]);
+
+const checklistRows = api.buildChecklistRows(recommendation, settings);
+assert.strictEqual(checklistRows[0][0].value, "확인");
+assert(checklistRows.some((row) => row[2]?.value === "13225MY9003"), "checklist rows must include products");
+
+const checklistHtml = api.renderChecklist(
+  api.recommendGroups(unsafeProducts, makeSettings({ limitUsd: 150 })),
+  makeSettings({ limitUsd: 150 }),
+);
+assert(!checklistHtml.includes("<script>"), "checklist product name must not render as raw HTML");
+assert(checklistHtml.includes("&lt;script&gt;alert(1)&lt;/script&gt;"));
 
 console.log("cart_group_calculator tests passed");

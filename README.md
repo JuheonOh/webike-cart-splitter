@@ -13,7 +13,7 @@ Webike 장바구니 상품가를 관세청 과세환율 기준으로 나눠 보�
    - 엑셀에서 `상품번호, 상품명, 수량, 단가JPY` 순서로 복사한 표는 직접 입력의 `CSV/TSV 붙여넣기`에 붙여넣어 한 번에 반영한다.
 3. 면세 기준, USD 수입환율, JPY 수입환율을 확인한다.
 4. `분석하기`를 누른다.
-5. 추천 주문 그룹을 확인한다.
+5. 추천 주문 그룹과 주문별 체크리스트를 확인한다.
 6. 장바구니 HTML 분석값을 수정해야 하면 `직접 입력으로 가져오기`를 눌러 직접 입력 테이블에서 보정한 뒤 다시 분석한다.
 7. 필요하면 `XLSX 내보내기`로 결과를 저장한다.
 
@@ -32,7 +32,7 @@ JPY 한도 = 면세 기준 USD * USD 수입환율 / JPY 수입환율
 ## 현재 파일
 
 - `cart_group_calculator.html`: 실제 계산기
-- `tests/cart_group_calculator.test.js`: 계산 그룹, XLSX 생성, 직접 입력 정규화, CSV/TSV 붙여넣기, 결과 HTML escape 검증
+- `tests/cart_group_calculator.test.js`: 계산 그룹, XLSX 생성, 직접 입력 정규화, CSV/TSV 붙여넣기, 체크리스트, 결과 HTML escape 검증
 - `기록/20260506_webike_주문그룹_자동화_설계안.md`: 향후 자동화 설계안
 
 ## 검증
@@ -52,6 +52,7 @@ node tests/cart_group_calculator.test.js
 - 직접 입력 행이 계산용 상품 데이터로 정규화되는지 확인
 - 분석 결과 상품이 직접 입력 행으로 변환되는지 확인
 - CSV/TSV 붙여넣기가 직접 입력 행으로 변환되는지 확인
+- 주문별 체크리스트 시트와 화면 렌더링이 생성되는지 확인
 - 붙여넣은 상품명/품번이 결과 영역에서 HTML로 실행되지 않도록 escape되는지 확인
 
 ## 방향
@@ -64,6 +65,7 @@ node tests/cart_group_calculator.test.js
 - 직접 품목 입력
 - CSV/TSV 붙여넣기 입력
 - 주문 그룹 추천
+- 주문별 체크리스트
 - XLSX 출력
 
 ### v1

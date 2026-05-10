@@ -182,6 +182,27 @@
       min-height: 96px;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
     }
+    .checklist-grid {
+      display: grid;
+      gap: 14px;
+    }
+    .checklist-card {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .checklist-card table {
+      min-width: 860px;
+    }
+    .check-cell {
+      width: 58px;
+      text-align: center;
+    }
+    .check-cell input {
+      width: 18px;
+      height: 18px;
+    }
     .check-row {
       display: flex;
       align-items: center;
@@ -808,6 +829,41 @@
     return rows;
   }
 
+  function buildChecklistRows(recommendation, settings) {
+    const rows = [[
+      xlsxCell("확인", "header"),
+      xlsxCell("주문", "header"),
+      xlsxCell("상품번호", "header"),
+      xlsxCell("상품명", "header"),
+      xlsxCell("수량", "header"),
+      xlsxCell("단가JPY", "header"),
+      xlsxCell("소계JPY", "header"),
+      xlsxCell("소계KRW", "header"),
+      xlsxCell("주문합계JPY", "header"),
+      xlsxCell("여유USD", "header"),
+    ]];
+
+    recommendation.groups.forEach((group, index) => {
+      const totals = groupTotals(group, settings);
+      aggregateGroup(group).forEach((item) => {
+        rows.push([
+          xlsxCell("[ ]", "boxText"),
+          xlsxCell(index + 1, "boxInteger"),
+          xlsxCell(item.code, "boxText"),
+          xlsxCell(item.name, "boxText"),
+          xlsxCell(item.quantity, "boxInteger"),
+          xlsxCell(item.unitJpy, "boxInteger"),
+          xlsxCell(item.subtotalJpy, "boxInteger"),
+          xlsxCell(Math.round(item.subtotalJpy * settings.jpyKrw), "boxInteger"),
+          xlsxCell(totals.totalJpy, "totalInteger"),
+          xlsxCell(totals.marginUsd, "totalDecimal"),
+        ]);
+      });
+    });
+
+    return rows;
+  }
+
   function styleId(style) {
     return {
       header: 1,
@@ -869,6 +925,7 @@
     <sheet name="요약" sheetId="1" r:id="rId1"/>
     <sheet name="추천그룹" sheetId="2" r:id="rId2"/>
     <sheet name="추출상품" sheetId="3" r:id="rId3"/>
+    <sheet name="체크리스트" sheetId="4" r:id="rId4"/>
   </sheets>
 </workbook>`;
   }
@@ -879,7 +936,8 @@
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
   <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>
   <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet3.xml"/>
-  <Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+  <Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet4.xml"/>
+  <Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
 </Relationships>`;
   }
 
@@ -900,6 +958,7 @@
   <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
   <Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
   <Override PartName="/xl/worksheets/sheet3.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/worksheets/sheet4.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
 </Types>`;
   }
 
@@ -1078,6 +1137,10 @@
       {
         name: "xl/worksheets/sheet3.xml",
         content: worksheetXml(buildProductRows(products, settings), [20, 48, 10, 12, 12, 14]),
+      },
+      {
+        name: "xl/worksheets/sheet4.xml",
+        content: worksheetXml(buildChecklistRows(recommendation, settings), [10, 10, 20, 42, 10, 12, 12, 14, 14, 12]),
       },
     ];
     return createZip(files);
@@ -1529,6 +1592,50 @@
     return `<section class="group-grid"><h2>추천 주문 그룹</h2>${cards}</section>`;
   }
 
+  function renderChecklist(recommendation, settings) {
+    if (recommendation.oversize.length || !recommendation.groups.length) return "";
+
+    const cards = recommendation.groups.map((group, index) => {
+      const totals = groupTotals(group, settings);
+      const rows = aggregateGroup(group).map((item, itemIndex) => `
+        <tr>
+          <td class="check-cell"><input type="checkbox" aria-label="주문 ${index + 1} ${itemIndex + 1}번 상품 확인"></td>
+          <td>${escapeHtml(item.code)}</td>
+          <td>${escapeHtml(item.name)}</td>
+          <td class="num">${formatter.format(item.quantity)}</td>
+          <td class="num">${formatter.format(item.unitJpy)}</td>
+          <td class="num">${formatter.format(item.subtotalJpy)}</td>
+        </tr>
+      `).join("");
+
+      return `
+        <article class="checklist-card">
+          <div class="group-head">
+            <div><b>주문 ${index + 1}</b> <span class="badge">${formatter.format(group.length)}개 단위</span></div>
+            <div>합계 ${money(totals.totalJpy)} JPY / 여유 ${money(totals.marginUsd, 2)} USD</div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th class="check-cell">확인</th>
+                  <th>상품번호</th>
+                  <th>상품명</th>
+                  <th class="num">수량</th>
+                  <th class="num">단가(JPY)</th>
+                  <th class="num">소계(JPY)</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </article>
+      `;
+    }).join("");
+
+    return `<section class="checklist-grid"><h2>주문별 체크리스트</h2>${cards}</section>`;
+  }
+
   function getSettings() {
     const limitUsd = toNumber($("#limitUsd").value);
     const usdKrw = toNumber($("#usdKrw").value);
@@ -1682,6 +1789,7 @@
     $("#resultArea").innerHTML = [
       renderSummary(products, recommendation, settings),
       renderGroups(recommendation, settings),
+      renderChecklist(recommendation, settings),
       renderProducts(products),
     ].join("");
   }
