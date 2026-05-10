@@ -8,6 +8,8 @@ const uiScript = fs.readFileSync(uiScriptPath, "utf8");
 const uiRuntimeScript = uiScript.replace(/\s*applyStoredSettingsToForm\(\);[\s\S]*$/, "");
 const uiApi = new Function("window", "document", `${uiRuntimeScript}
 return {
+  buildWebikeCartScript,
+  renderCartScriptPanel,
   renderGroups,
   renderProducts,
 };
@@ -302,6 +304,25 @@ assert(productHtml.includes('class="result-product-quantity result-product-edit"
 assert(productHtml.includes('class="result-product-unit-jpy result-product-edit"'));
 assert(productHtml.includes('value="1"'));
 assert(productHtml.includes('value="100"'));
+
+const cartScriptPanelHtml = uiApi.renderCartScriptPanel();
+assert(cartScriptPanelHtml.includes('data-action="generate-webike-cart-script"'));
+assert(cartScriptPanelHtml.includes('data-action="copy-webike-cart-script"'));
+assert(cartScriptPanelHtml.includes('id="webikeCartScriptOutput"'));
+
+const webikeCartScript = uiApi.buildWebikeCartScript(sampleProducts.slice(0, 2));
+assert(webikeCartScript.includes("www.japan-webike.kr"));
+assert(webikeCartScript.includes("/api-search-es.html"));
+assert(webikeCartScript.includes("/api_shopping_cart.html?action=add_product&ajax_action=1"));
+assert(webikeCartScript.includes('"partNumber": "13225MY9003"'));
+assert(webikeCartScript.includes('"quantity": 4'));
+assert(webikeCartScript.includes("products_id: item.productsId"));
+assert(webikeCartScript.includes('location.href = "/shopping_cart.html";'));
+assert.doesNotThrow(() => new Function(webikeCartScript));
+
+const unsafeCartScript = uiApi.buildWebikeCartScript(unsafeProducts);
+assert(!unsafeCartScript.includes("<script>"), "generated script must escape HTML-like product data");
+assert(unsafeCartScript.includes("\\u003cscript\\u003ealert(1)\\u003c/script\\u003e"));
 
 const oversizeRecommendation = api.recommendGroups(unsafeProducts, makeSettings({ limitUsd: 1 }));
 const oversizeHtml = uiApi.renderGroups(oversizeRecommendation, makeSettings({ limitUsd: 1 }));

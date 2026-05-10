@@ -1,0 +1,10 @@
+{
+  "collectionPageStructuredData": "{\"@context\":\"https://schema.org\",\"@type\":\"CollectionPage\",\"about\":{\"@type\":\"WebPage\",\"offers\":{\"@type\":\"Offer\",\"itemOffered\":[{\"@type\":\"Product\",\"name\":\"HONDA OEM Motorcycle parts 밸브,헤드라이트 34901KY2702\",\"url\":\"https://www.japan-webike.kr/products/25427339.html\",\"offers\":{\"@type\":\"Offer\",\"price\":62823.6,\"priceCurrency\":\"KRW\"}}]}}}",
+  "notFound": false,
+  "productsList": [
+    {
+      "data": "<li class=\"product-item\"><div class=\"product\"><div class=\"detail\"><a href='https://www.japan-webike.kr/products/25427339.html' target='_blank' title=\"HONDA OEM Motorcycle parts 밸브,헤드라이트 34901KY2702\"><span class=\"info-title\">HONDA OEM Motorcycle parts 밸브,헤드라이트 34901KY2702</span></a><span class=\"model\">모델:&nbsp34901KY2702</span><span class=\"price\">62,823.6 KRW</span></div></div></li>"
+    }
+  ],
+  "redirectUrl": null
+}

@@ -1,0 +1,31 @@
+{
+  "response": {
+    "status": "OK",
+    "results": [
+      {
+        "service_code": "SEA",
+        "service_id_dobar": "73",
+        "cost": 2700,
+        "duration_min": 30,
+        "type": "weight",
+        "duration_max": 40
+      },
+      {
+        "service_code": "STD",
+        "service_id_dobar": "60",
+        "cost": 2800,
+        "duration_min": 3,
+        "type": "weight",
+        "duration_max": 3
+      },
+      {
+        "service_code": "FEDEXIE",
+        "service_id_dobar": "89",
+        "cost": 9900,
+        "duration_min": 2,
+        "type": "volume",
+        "duration_max": 4
+      }
+    ]
+  }
+}

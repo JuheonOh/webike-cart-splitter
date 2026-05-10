@@ -3,6 +3,7 @@ const formatter = new Intl.NumberFormat("ko-KR");
 let latestAnalysis = null;
 const XLSX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const EXCHANGE_RATE_DATA_URL = "data/exchange-rates.json";
+const WEBIKE_CART_SCRIPT_HOST = "www.japan-webike.kr";
 const {
   EXCHANGE_RATE_SOURCE_URL,
   toNumber,
@@ -85,11 +86,13 @@ function setExportEnabled(enabled) {
 function resetExportData() {
   latestAnalysis = null;
   setExportEnabled(false);
+  clearCartScriptOutput("입력이 바뀌었습니다. 다시 분석해 주세요.");
 }
 
 function markResultEditsDirty() {
   if (!latestAnalysis) return;
   setExportEnabled(false);
+  clearCartScriptOutput("상품 값이 바뀌었습니다. 다시 만들기를 눌러주세요.");
 }
 
 function downloadXlsx() {
@@ -178,6 +181,224 @@ function renderProducts(products) {
           </thead>
           <tbody>${rows}</tbody>
         </table>
+      </div>
+    </section>
+  `;
+}
+
+function cartScriptItemFromProduct(item) {
+  return {
+    partNumber: String(item.code || "").trim(),
+    quantity: Math.max(1, Math.round(toNumber(item.quantity))),
+    name: String(item.name || item.code || "").trim(),
+    unitJpy: Math.max(0, Math.round(toNumber(item.unitJpy))),
+  };
+}
+
+function jsonForGeneratedScript(value) {
+  return JSON.stringify(value, null, 2)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026");
+}
+
+function buildWebikeCartScript(products) {
+  const items = products
+    .map(cartScriptItemFromProduct)
+    .filter((item) => item.partNumber && item.quantity > 0);
+
+  return `// Webike Cart Splitter generated add-cart script.
+// Open https://${WEBIKE_CART_SCRIPT_HOST}/, then paste this whole script into DevTools Console.
+(async () => {
+  const items = ${jsonForGeneratedScript(items)};
+  const requiredHost = "${WEBIKE_CART_SCRIPT_HOST}";
+  const searchEndpoint = "/api-search-es.html";
+  const cartEndpoint = "/api_shopping_cart.html?action=add_product&ajax_action=1";
+  const failures = [];
+
+  if (location.hostname !== requiredHost) {
+    console.error(\`Webike 페이지에서 실행해 주세요: https://\${requiredHost}/\`);
+    return;
+  }
+
+  function normalizePartNumber(value) {
+    return String(value || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  }
+
+  function collectStrings(value, output = []) {
+    if (typeof value === "string") {
+      output.push(value);
+      return output;
+    }
+    if (Array.isArray(value)) {
+      value.forEach((item) => collectStrings(item, output));
+      return output;
+    }
+    if (value && typeof value === "object") {
+      Object.values(value).forEach((item) => collectStrings(item, output));
+    }
+    return output;
+  }
+
+  function productUrlsFromText(text) {
+    const urls = [];
+    const pattern = /https?:\\/\\/www\\.japan-webike\\.kr\\/products\\/\\d+\\.html|\\/products\\/\\d+\\.html/g;
+    for (const match of String(text || "").matchAll(pattern)) {
+      urls.push(new URL(match[0], location.origin).href);
+    }
+    return urls;
+  }
+
+  function productUrlFromSearchData(data, item) {
+    if (data?.redirectUrl) return new URL(data.redirectUrl, location.origin).href;
+
+    const expected = normalizePartNumber(item.partNumber);
+    const candidates = collectStrings(data).flatMap((text) => {
+      return productUrlsFromText(text).map((url) => ({ url, text }));
+    });
+    const exact = candidates.find((candidate) => normalizePartNumber(candidate.text).includes(expected));
+    if (exact) return exact.url;
+    if (candidates.length === 1) return candidates[0].url;
+    throw new Error(\`\${item.partNumber} 검색 결과에서 상품 상세 URL을 1개로 확정하지 못했습니다.\`);
+  }
+
+  function jsVariable(html, name) {
+    const pattern = new RegExp(\`(?:var|let|const)\\\\s+\${name}\\\\s*=\\\\s*["']([^"']+)["']\`);
+    return html.match(pattern)?.[1] || "";
+  }
+
+  function firstFieldValue(doc, selectors) {
+    for (const selector of selectors) {
+      const element = doc.querySelector(selector);
+      const value = element?.value || element?.dataset?.prdid || element?.dataset?.prdId || element?.textContent;
+      if (String(value || "").trim()) return String(value).trim();
+    }
+    return "";
+  }
+
+  async function fetchJson(url) {
+    const response = await fetch(url, { credentials: "include" });
+    if (!response.ok) throw new Error(\`HTTP \${response.status}: \${url}\`);
+    return response.json();
+  }
+
+  async function fetchText(url) {
+    const response = await fetch(url, { credentials: "include" });
+    if (!response.ok) throw new Error(\`HTTP \${response.status}: \${url}\`);
+    return response.text();
+  }
+
+  async function resolveProduct(item) {
+    const searchParams = new URLSearchParams({
+      search: "",
+      "p.k": item.partNumber,
+      "p.ref": "product-search-es",
+      smp: "sp",
+    });
+    const searchData = await fetchJson(\`\${searchEndpoint}?\${searchParams}\`);
+    const productUrl = productUrlFromSearchData(searchData, item);
+    const html = await fetchText(productUrl);
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const productsId = firstFieldValue(doc, [
+      "#prod_id",
+      "input[name='prod_id']",
+      "[data-prdId]",
+      "[data-prdid]",
+    ]) || jsVariable(html, "productsId");
+    const detailPartNumber = firstFieldValue(doc, ["#product_id"]) || jsVariable(html, "productsModel");
+
+    if (!productsId) throw new Error(\`\${item.partNumber} products_id를 찾지 못했습니다.\`);
+    if (detailPartNumber && normalizePartNumber(detailPartNumber) !== normalizePartNumber(item.partNumber)) {
+      throw new Error(\`요청 \${item.partNumber}, 상세 \${detailPartNumber} 부품번호가 다릅니다.\`);
+    }
+    if (jsVariable(html, "canNotAddCart") === "true") {
+      throw new Error(\`\${item.partNumber} 상품은 장바구니 담기 불가 상태입니다.\`);
+    }
+    if (jsVariable(html, "restrictedCountry") === "true") {
+      throw new Error(\`\${item.partNumber} 상품은 배송 제한 상태입니다.\`);
+    }
+
+    return { ...item, productsId, productUrl };
+  }
+
+  function responseLooksFailed(parsed, text) {
+    if (parsed && typeof parsed === "object") {
+      const result = String(parsed.result || parsed.status || parsed.resultcode || "").toLowerCase();
+      const message = String(parsed.message || parsed.errmsg || parsed.errsmsg || "").toLowerCase();
+      return ["error", "failed", "fail", "ng"].includes(result) || message.includes("error") || message.includes("fail");
+    }
+    return /(?:error|failed|fail|오류|실패)/i.test(String(text || ""));
+  }
+
+  async function addToCart(item) {
+    const response = await fetch(cartEndpoint, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "X-Requested-With": "XMLHttpRequest",
+      },
+      body: new URLSearchParams({
+        products_id: item.productsId,
+        cart_quantity: String(item.quantity),
+      }),
+    });
+    const text = await response.text();
+    let parsed = null;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      parsed = null;
+    }
+    if (!response.ok || responseLooksFailed(parsed, text)) {
+      throw new Error(\`\${response.status} \${text.slice(0, 240)}\`);
+    }
+  }
+
+  for (const [index, item] of items.entries()) {
+    const prefix = \`[\${index + 1}/\${items.length}] \${item.partNumber}\`;
+    try {
+      console.log(\`\${prefix} 검색 및 상품 확인\`);
+      const resolved = await resolveProduct(item);
+      console.log(\`\${prefix} 장바구니 담기 요청: products_id \${resolved.productsId}, 수량 \${resolved.quantity}\`);
+      await addToCart(resolved);
+      console.log(\`\${prefix} 완료\`);
+    } catch (error) {
+      failures.push({ item, error: error.message });
+      console.error(\`\${prefix} 실패\`, error);
+    }
+  }
+
+  if (failures.length) {
+    console.error("장바구니 담기 실패 상품:", failures);
+    return;
+  }
+
+  console.log(\`완료: \${items.length}개 상품을 장바구니에 담았습니다.\`);
+  location.href = "/shopping_cart.html";
+})();
+`;
+}
+
+function renderCartScriptPanel() {
+  return `
+    <section class="panel webike-script-panel">
+      <div class="section-head">
+        <h2>Webike 장바구니 담기</h2>
+        <div class="section-actions">
+          <button type="button" class="compact" data-action="generate-webike-cart-script">스크립트 만들기</button>
+          <button type="button" class="secondary compact" data-action="copy-webike-cart-script" disabled>스크립트 복사</button>
+        </div>
+      </div>
+      <ol class="script-steps">
+        <li>Webike 페이지 열기</li>
+        <li>생성된 스크립트를 DevTools Console에 붙여넣기</li>
+        <li>장바구니 페이지에서 상품과 배송비 확인</li>
+      </ol>
+      <div class="script-output-area" hidden>
+        <label for="webikeCartScriptOutput">생성된 스크립트</label>
+        <textarea id="webikeCartScriptOutput" class="script-output" readonly spellcheck="false"></textarea>
+        <p id="webikeCartScriptStatus" class="source" role="status"></p>
       </div>
     </section>
   `;
@@ -365,6 +586,19 @@ function focusFirstManualRow(rows) {
   firstEditableInput.select?.();
 }
 
+function clearCartScriptOutput(message = "") {
+  const outputArea = document.querySelector(".script-output-area");
+  const output = $("#webikeCartScriptOutput");
+  const status = $("#webikeCartScriptStatus");
+  const copyButton = document.querySelector('[data-action="copy-webike-cart-script"]');
+  if (!outputArea || !output || !status || !copyButton) return;
+
+  output.value = "";
+  outputArea.hidden = !message;
+  status.textContent = message;
+  copyButton.disabled = true;
+}
+
 function copyLatestProductsToManual() {
   if (!latestAnalysis?.products?.length) {
     showError("직접 입력으로 가져올 상품이 없습니다.");
@@ -383,6 +617,67 @@ function copyLatestProductsToManual() {
   $("#manualInputPanel").scrollIntoView({ behavior: "smooth", block: "start" });
   highlightManualRows(importedRows);
   window.requestAnimationFrame(() => focusFirstManualRow(importedRows));
+}
+
+function showCartScriptOutput(script, message) {
+  const outputArea = document.querySelector(".script-output-area");
+  const output = $("#webikeCartScriptOutput");
+  const status = $("#webikeCartScriptStatus");
+  const copyButton = document.querySelector('[data-action="copy-webike-cart-script"]');
+  if (!outputArea || !output || !status || !copyButton) return;
+
+  output.value = script;
+  outputArea.hidden = false;
+  status.textContent = message;
+  copyButton.disabled = !script;
+  if (script) output.focus({ preventScroll: true });
+}
+
+function generateWebikeCartScriptFromResult() {
+  clearError();
+  const editResult = readResultProductEdits();
+  if (editResult.errors.length) {
+    showError(editResult.errors[0]);
+    setExportEnabled(false);
+    return;
+  }
+  if (!editResult.products.length) {
+    showError("스크립트를 만들 상품이 없습니다.");
+    return;
+  }
+
+  const script = buildWebikeCartScript(editResult.products);
+  showCartScriptOutput(
+    script,
+    `${editResult.products.length}개 상품 기준으로 스크립트를 만들었습니다.`,
+  );
+}
+
+async function copyTextToClipboard(text, sourceElement) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+
+  sourceElement.focus({ preventScroll: true });
+  sourceElement.select();
+  return document.execCommand("copy");
+}
+
+async function copyWebikeCartScript() {
+  const output = $("#webikeCartScriptOutput");
+  const status = $("#webikeCartScriptStatus");
+  if (!output?.value) {
+    showError("먼저 스크립트를 만들어 주세요.");
+    return;
+  }
+
+  try {
+    const copied = await copyTextToClipboard(output.value, output);
+    status.textContent = copied ? "스크립트를 복사했습니다." : "복사하지 못했습니다. 스크립트 영역을 직접 선택해 복사해 주세요.";
+  } catch {
+    status.textContent = "복사하지 못했습니다. 스크립트 영역을 직접 선택해 복사해 주세요.";
+  }
 }
 
 function readResultProductEdits() {
@@ -420,6 +715,7 @@ function renderAnalysis(products, settings) {
     renderSummary(products, recommendation, settings),
     renderGroups(recommendation, settings),
     renderProducts(products),
+    renderCartScriptPanel(),
   ].join("");
 }
 
@@ -521,6 +817,14 @@ $("#resultArea").addEventListener("click", (event) => {
   }
   if (event.target.dataset.action === "apply-product-edits") {
     applyProductEdits();
+    return;
+  }
+  if (event.target.dataset.action === "generate-webike-cart-script") {
+    generateWebikeCartScriptFromResult();
+    return;
+  }
+  if (event.target.dataset.action === "copy-webike-cart-script") {
+    copyWebikeCartScript();
   }
 });
 $("#resultArea").addEventListener("input", (event) => {
