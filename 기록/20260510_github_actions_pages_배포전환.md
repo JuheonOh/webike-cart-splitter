@@ -31,6 +31,7 @@ schedule / workflow_dispatch
 - `index.html`
 - `cart_group_calculator.html`
 - `.nojekyll`
+- `assets/`
 - `data/exchange-rates.json`
 
 ## 운영 필요 작업

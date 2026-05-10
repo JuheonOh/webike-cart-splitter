@@ -2,13 +2,9 @@ const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 
-const htmlPath = path.join(__dirname, "..", "cart_group_calculator.html");
-const html = fs.readFileSync(htmlPath, "utf8");
-const scriptMatch = html.match(/<script>([\s\S]*)<\/script>/);
-
-assert(scriptMatch, "inline script not found");
-
-const runtimeScript = scriptMatch[1].replace(/\s*applyStoredSettingsToForm\(\);[\s\S]*$/, "");
+const scriptPath = path.join(__dirname, "..", "assets", "js", "cart-group-calculator.js");
+const script = fs.readFileSync(scriptPath, "utf8");
+const runtimeScript = script.replace(/\s*applyStoredSettingsToForm\(\);[\s\S]*$/, "");
 const api = new Function(`${runtimeScript}
 return {
   buildXlsxBytes,

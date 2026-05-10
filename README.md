@@ -39,7 +39,7 @@ node scripts/update-exchange-rates.js
 - 예상 URL: `https://juheonoh.github.io/webike-cart-splitter/`
 - GitHub 저장소 `Settings > Pages`에서 Source를 `GitHub Actions`로 설정한다.
 - `deploy-pages` 워크플로우가 Pages artifact를 만들고 배포한다.
-- 배포 대상 파일은 `index.html`, `cart_group_calculator.html`, `.nojekyll`, `data/exchange-rates.json`이다.
+- 배포 대상 파일은 `index.html`, `cart_group_calculator.html`, `.nojekyll`, `assets/`, `data/exchange-rates.json`이다.
 - `push`는 현재 파일을 배포하고, `schedule`/`workflow_dispatch`는 환율 JSON 갱신 후 배포한다.
 
 ## 계산 기준
@@ -58,6 +58,8 @@ JPY 한도 = 면세 기준 USD * USD 수입환율 / JPY 수입환율
 
 - `index.html`: GitHub Pages 진입점
 - `cart_group_calculator.html`: 실제 계산기
+- `assets/css/cart-group-calculator.css`: 계산기 스타일
+- `assets/js/cart-group-calculator.js`: 계산기 화면 동작
 - `data/exchange-rates.json`: GitHub Pages에서 읽는 USD/JPY 수입환율 데이터
 - `scripts/update-exchange-rates.js`: forwarder.kr 고시환율 HTML 파서
 - `.github/workflows/deploy-pages.yml`: 환율 JSON 자동 갱신과 GitHub Pages 배포 워크플로우
