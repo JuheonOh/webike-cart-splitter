@@ -357,6 +357,10 @@
     }[char]));
   }
 
+  function escapeHtml(value) {
+    return escapeXml(value);
+  }
+
   function xlsxCell(value, style = "", type = "") {
     return { value, style, type };
   }
@@ -992,8 +996,8 @@
   function renderProducts(products) {
     const rows = products.map((item) => `
       <tr>
-        <td>${item.code}</td>
-        <td>${item.name}</td>
+        <td>${escapeHtml(item.code)}</td>
+        <td>${escapeHtml(item.name)}</td>
         <td class="num">${formatter.format(item.quantity)}</td>
         <td class="num">${formatter.format(item.unitJpy)}</td>
         <td class="num">${formatter.format(item.totalJpy)}</td>
@@ -1023,7 +1027,7 @@
 
   function renderGroups(recommendation, settings) {
     if (recommendation.oversize.length) {
-      const list = recommendation.oversize.map((item) => `<li>${item.code} - ${item.name}: ${money(item.totalJpy)} JPY</li>`).join("");
+      const list = recommendation.oversize.map((item) => `<li>${escapeHtml(item.code)} - ${escapeHtml(item.name)}: ${money(item.totalJpy)} JPY</li>`).join("");
       return `<section class="panel"><h2>그룹 추천</h2><p class="bad">단일 품목이 한도를 초과했습니다.</p><ul>${list}</ul></section>`;
     }
 
@@ -1039,8 +1043,8 @@
       const marginJpy = settings.limitJpy - totalJpy;
       const rows = aggregateGroup(group).map((item) => `
         <tr>
-          <td>${item.code}</td>
-          <td>${item.name}</td>
+          <td>${escapeHtml(item.code)}</td>
+          <td>${escapeHtml(item.name)}</td>
           <td class="num">${formatter.format(item.quantity)}</td>
           <td class="num">${formatter.format(item.unitJpy)}</td>
           <td class="num">${formatter.format(item.subtotalJpy)}</td>
