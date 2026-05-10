@@ -12,12 +12,27 @@ Webike 장바구니 상품가를 관세청 과세환율 기준으로 나눠 보�
    - `직접 입력`: 상품번호, 상품명, 수량, 단가 JPY를 행 단위로 입력한다.
    - 엑셀에서 `상품번호, 상품명, 수량, 단가JPY` 순서로 복사한 표는 직접 입력의 `CSV/TSV 붙여넣기`에 붙여넣어 한 번에 반영한다.
 3. 면세 기준, USD 수입환율, JPY 수입환율을 확인한다.
+   - GitHub Pages에서는 `data/exchange-rates.json`의 자동 갱신 환율이 기본값으로 반영된다.
+   - 브라우저에 저장된 설정이 있으면 저장값을 우선 사용한다.
 4. `분석하기`를 누른다.
 5. 추천 주문 그룹을 확인한다.
 6. 장바구니 HTML 분석값을 수정해야 하면 `직접 입력으로 가져오기`를 눌러 직접 입력 테이블에서 보정한 뒤 다시 분석한다.
 7. 필요하면 `XLSX 내보내기`로 결과를 저장한다.
 
 입력한 면세 기준, USD/JPY 수입환율, 최대 주문 수, 수량 분할 설정은 브라우저에 저장되어 다음 실행 때 복원됩니다.
+
+## 환율 자동 갱신
+
+- 출처: `https://www.forwarder.kr/curr/index.php?curr=ex_rate`
+- 대상: 미국 `USD`, 일본 `JPY`의 수입환율
+- 결과 파일: `data/exchange-rates.json`
+- GitHub Actions: `.github/workflows/update-exchange-rates.yml`
+- 수동 실행: GitHub Actions의 `update-exchange-rates` 워크플로우에서 `Run workflow`
+- 로컬 갱신:
+
+```bash
+node scripts/update-exchange-rates.js
+```
 
 ## GitHub Pages 배포
 
@@ -42,7 +57,11 @@ JPY 한도 = 면세 기준 USD * USD 수입환율 / JPY 수입환율
 
 - `index.html`: GitHub Pages 진입점
 - `cart_group_calculator.html`: 실제 계산기
+- `data/exchange-rates.json`: GitHub Pages에서 읽는 USD/JPY 수입환율 데이터
+- `scripts/update-exchange-rates.js`: forwarder.kr 고시환율 HTML 파서
+- `.github/workflows/update-exchange-rates.yml`: 환율 JSON 자동 갱신 워크플로우
 - `tests/cart_group_calculator.test.js`: 계산 그룹, XLSX 생성, 직접 입력 정규화, CSV/TSV 붙여넣기, 결과 HTML escape 검증
+- `tests/update_exchange_rates.test.js`: forwarder.kr 고시환율 HTML 파싱 검증
 - `기록/20260506_webike_주문그룹_자동화_설계안.md`: 향후 자동화 설계안
 
 ## 검증
@@ -51,28 +70,31 @@ JPY 한도 = 면세 기준 USD * USD 수입환율 / JPY 수입환율
 
 ```bash
 node tests/cart_group_calculator.test.js
+node tests/update_exchange_rates.test.js
 ```
 
 검증 항목:
 
 - 샘플 상품 합계가 `42,699 JPY`인지 확인
-- 기본 환율 기준 JPY 한도가 `23,893 JPY`인지 확인
+- 기본 환율 기준 JPY 한도가 `23,539 JPY`인지 확인
 - 추천 그룹이 `21,350 / 21,349 JPY` 두 그룹으로 나뉘는지 확인
 - XLSX 바이트가 생성되는지 확인
 - 직접 입력 행이 계산용 상품 데이터로 정규화되는지 확인
 - 분석 결과 상품이 직접 입력 행으로 변환되는지 확인
 - CSV/TSV 붙여넣기가 직접 입력 행으로 변환되는지 확인
 - 환율과 주문 설정이 저장값으로 정규화되는지 확인
+- 자동 환율 JSON 값이 계산기 입력용 데이터로 정규화되는지 확인
 - 장바구니 행에서 JPY/円/￥ 가격 표기를 파싱하는지 확인
 - Webike 장바구니 HTML fixture가 상품 목록으로 파싱되는지 확인
 - 붙여넣은 상품명/품번이 결과 영역에서 HTML로 실행되지 않도록 escape되는지 확인
+- forwarder.kr 고시환율 HTML에서 USD/JPY 수입환율을 파싱하는지 확인
 
 ## 방향
 
 ### v0
 
 - 현재 정적 계산기 유지
-- 수동 환율 입력
+- 자동 기본 환율 + 수동 환율 입력
 - 장바구니 HTML 붙여넣기
 - 직접 품목 입력
 - CSV/TSV 붙여넣기 입력

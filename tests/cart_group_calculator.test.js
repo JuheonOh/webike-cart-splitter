@@ -16,6 +16,7 @@ return {
   groupTotals,
   manualRowsFromProducts,
   manualRowsFromPastedText,
+  normalizeExchangeRateData,
   normalizeManualProducts,
   normalizeStoredSettings,
   parseJpy,
@@ -41,8 +42,8 @@ function makeProduct(index, code, name, quantity, unitJpy) {
 function makeSettings(overrides = {}) {
   const settings = {
     limitUsd: 150,
-    usdKrw: 1476.92,
-    jpyKrw: 9.272,
+    usdKrw: 1465.73,
+    jpyKrw: 9.3399,
     maxGroups: 8,
     splitQuantity: true,
     ...overrides,
@@ -198,7 +199,7 @@ const recommendation = api.recommendGroups(sampleProducts, settings);
 const totals = recommendation.groups.map((group) => api.groupTotals(group, settings).totalJpy);
 
 assert.strictEqual(recommendation.totalJpy, 42699);
-assert.strictEqual(Math.floor(settings.limitJpy), 23893);
+assert.strictEqual(Math.floor(settings.limitJpy), 23539);
 assert.strictEqual(recommendation.groups.length, 2);
 assert.deepStrictEqual(totals, [21350, 21349]);
 
@@ -406,10 +407,37 @@ assert.deepStrictEqual(api.readStoredSettings(settingsStorage), {
 });
 assert.deepStrictEqual(api.readStoredSettings(makeMemoryStorage("{bad json")), {
   limitUsd: 150,
-  usdKrw: 1476.92,
-  jpyKrw: 9.272,
+  usdKrw: 1465.73,
+  jpyKrw: 9.3399,
   maxGroups: 8,
   splitQuantity: true,
 });
+
+assert.deepStrictEqual(api.normalizeExchangeRateData({
+  source: "forwarder.kr",
+  sourceUrl: "https://www.forwarder.kr/curr/index.php?curr=ex_rate",
+  period: "2026-05-10 ~ 2026-05-16",
+  updatedAt: "2026-05-10T16:08:02+09:00",
+  rates: {
+    USD: "1465.73",
+    JPY: "9.3399",
+  },
+}), {
+  source: "forwarder.kr",
+  sourceUrl: "https://www.forwarder.kr/curr/index.php?curr=ex_rate",
+  period: "2026-05-10 ~ 2026-05-16",
+  updatedAt: "2026-05-10T16:08:02+09:00",
+  rates: {
+    USD: 1465.73,
+    JPY: 9.3399,
+  },
+});
+
+assert.strictEqual(api.normalizeExchangeRateData({
+  rates: {
+    USD: 1465.73,
+    JPY: 0,
+  },
+}), null);
 
 console.log("cart_group_calculator tests passed");

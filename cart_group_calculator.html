@@ -390,11 +390,11 @@
         </div>
         <div>
           <label for="usdKrw">USD 수입환율(원)</label>
-          <input id="usdKrw" type="number" min="1" step="0.01" value="1476.92">
+          <input id="usdKrw" type="number" min="1" step="0.01" value="1465.73">
         </div>
         <div>
           <label for="jpyKrw">JPY 수입환율(원)</label>
-          <input id="jpyKrw" type="number" min="0.0001" step="0.001" value="9.272">
+          <input id="jpyKrw" type="number" min="0.0001" step="0.001" value="9.3399">
         </div>
         <div>
           <label for="maxGroups">최대 주문 수</label>
@@ -408,8 +408,8 @@
       <p class="note">
         관세청 고시 수입환율은 주 단위로 바뀝니다. 주문 또는 입항 예상 주차의 값을 입력하세요.
       </p>
-      <p class="source">
-        기본값: 적용기간 2026-04-26 ~ 2026-05-02, USD 1,476.92원, JPY 9.272원.
+      <p class="source" id="exchangeRateSource" aria-live="polite">
+        기본값: 적용기간 2026-05-10 ~ 2026-05-16, USD 1,465.73원, JPY 9.3399원.
         <a href="https://www.forwarder.kr/curr/index.php?curr=ex_rate" target="_blank" rel="noopener noreferrer">관세청 고시환율 조회</a>
       </p>
     </aside>
@@ -426,10 +426,12 @@
   let latestAnalysis = null;
   const XLSX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
   const SETTINGS_STORAGE_KEY = "webike-cart-splitter-settings-v1";
+  const EXCHANGE_RATE_DATA_URL = "data/exchange-rates.json";
+  const EXCHANGE_RATE_SOURCE_URL = "https://www.forwarder.kr/curr/index.php?curr=ex_rate";
   const DEFAULT_SETTINGS = {
     limitUsd: 150,
-    usdKrw: 1476.92,
-    jpyKrw: 9.272,
+    usdKrw: 1465.73,
+    jpyKrw: 9.3399,
     maxGroups: 8,
     splitQuantity: true,
   };
@@ -550,6 +552,86 @@
       return true;
     } catch {
       return false;
+    }
+  }
+
+  function hasStoredSettings(storage) {
+    try {
+      const target = storage || window.localStorage;
+      return target.getItem(SETTINGS_STORAGE_KEY) !== null;
+    } catch {
+      return false;
+    }
+  }
+
+  function normalizeExchangeRateData(data) {
+    const source = data && typeof data === "object" ? data : {};
+    const rates = source.rates && typeof source.rates === "object" ? source.rates : {};
+    const usd = positiveNumber(rates.USD, 0);
+    const jpy = positiveNumber(rates.JPY, 0);
+
+    if (!usd || !jpy) return null;
+
+    return {
+      source: cleanText(source.source || "forwarder.kr"),
+      sourceUrl: cleanText(source.sourceUrl || EXCHANGE_RATE_SOURCE_URL),
+      period: cleanText(source.period || ""),
+      updatedAt: cleanText(source.updatedAt || ""),
+      rates: {
+        USD: usd,
+        JPY: jpy,
+      },
+    };
+  }
+
+  function rateMoney(value) {
+    return Number(value).toLocaleString("ko-KR", {
+      maximumFractionDigits: 4,
+    });
+  }
+
+  function setExchangeRateSourceMessage(message) {
+    const sourceBox = $("#exchangeRateSource");
+    if (!sourceBox) return;
+
+    sourceBox.textContent = `${message} `;
+    const link = document.createElement("a");
+    link.href = EXCHANGE_RATE_SOURCE_URL;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = "관세청 고시환율 조회";
+    sourceBox.appendChild(link);
+  }
+
+  function renderExchangeRateSource(data, applied) {
+    const prefix = applied ? "자동환율 적용" : "자동환율 확인";
+    const period = data.period ? `적용기간 ${data.period}, ` : "";
+    const suffix = applied ? "" : " 저장된 설정이 있어 입력값은 유지했습니다.";
+    setExchangeRateSourceMessage(
+      `${prefix}: ${period}USD ${rateMoney(data.rates.USD)}원, JPY ${rateMoney(data.rates.JPY)}원.${suffix}`,
+    );
+  }
+
+  function applyExchangeRatesToForm(data) {
+    $("#usdKrw").value = data.rates.USD;
+    $("#jpyKrw").value = data.rates.JPY;
+    resetExportData();
+  }
+
+  async function loadExchangeRates({ applyToForm = false } = {}) {
+    if (typeof fetch !== "function" || window.location.protocol === "file:") return;
+
+    try {
+      const response = await fetch(`${EXCHANGE_RATE_DATA_URL}?v=${Date.now()}`, { cache: "no-store" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      const data = normalizeExchangeRateData(await response.json());
+      if (!data) throw new Error("invalid exchange rate data");
+
+      if (applyToForm) applyExchangeRatesToForm(data);
+      renderExchangeRateSource(data, applyToForm);
+    } catch {
+      setExchangeRateSourceMessage("자동환율을 불러오지 못했습니다. 현재 입력값을 사용합니다.");
     }
   }
 
@@ -1758,6 +1840,7 @@
   }
 
   applyStoredSettingsToForm();
+  loadExchangeRates({ applyToForm: !hasStoredSettings() });
   clearManualRows();
   setInputMode(getInputMode());
 
