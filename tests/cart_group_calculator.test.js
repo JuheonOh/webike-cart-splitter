@@ -2,27 +2,16 @@ const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 
-const scriptPath = path.join(__dirname, "..", "assets", "js", "cart-group-calculator.js");
-const script = fs.readFileSync(scriptPath, "utf8");
-const runtimeScript = script.replace(/\s*applyStoredSettingsToForm\(\);[\s\S]*$/, "");
-const api = new Function(`${runtimeScript}
+const api = require("../assets/js/calculator-core.js");
+const uiScriptPath = path.join(__dirname, "..", "assets", "js", "cart-group-calculator.js");
+const uiScript = fs.readFileSync(uiScriptPath, "utf8");
+const uiRuntimeScript = uiScript.replace(/\s*applyStoredSettingsToForm\(\);[\s\S]*$/, "");
+const uiApi = new Function("window", "document", `${uiRuntimeScript}
 return {
-  buildXlsxBytes,
-  cartProductFromRow,
-  groupTotals,
-  manualRowsFromProducts,
-  manualRowsFromPastedText,
-  normalizeExchangeRateData,
-  normalizeManualProducts,
-  normalizeStoredSettings,
-  parseJpy,
-  recommendGroups,
   renderGroups,
   renderProducts,
-  readStoredSettings,
-  writeStoredSettings,
 };
-`)();
+`)({ WebikeCartCore: api }, { querySelector: () => null });
 
 function makeProduct(index, code, name, quantity, unitJpy) {
   return {
@@ -305,12 +294,12 @@ assert.deepStrictEqual(attributeCartProducts.map((item) => ({
 const unsafeProducts = [
   makeProduct(0, "<img src=x onerror=alert(1)>", "<script>alert(1)</script>", 1, 100),
 ];
-const productHtml = api.renderProducts(unsafeProducts);
+const productHtml = uiApi.renderProducts(unsafeProducts);
 assert(!productHtml.includes("<script>"), "product name must not render as raw HTML");
 assert(productHtml.includes("&lt;script&gt;alert(1)&lt;/script&gt;"));
 
 const oversizeRecommendation = api.recommendGroups(unsafeProducts, makeSettings({ limitUsd: 1 }));
-const oversizeHtml = api.renderGroups(oversizeRecommendation, makeSettings({ limitUsd: 1 }));
+const oversizeHtml = uiApi.renderGroups(oversizeRecommendation, makeSettings({ limitUsd: 1 }));
 assert(!oversizeHtml.includes("<img"), "oversize product code must not render as raw HTML");
 assert(oversizeHtml.includes("&lt;img src=x onerror=alert(1)&gt;"));
 

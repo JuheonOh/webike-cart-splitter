@@ -59,7 +59,8 @@ JPY 한도 = 면세 기준 USD * USD 수입환율 / JPY 수입환율
 - `index.html`: GitHub Pages 진입점
 - `cart_group_calculator.html`: 실제 계산기
 - `assets/css/cart-group-calculator.css`: 계산기 스타일
-- `assets/js/cart-group-calculator.js`: 계산기 화면 동작
+- `assets/js/calculator-core.js`: 계산, 파싱, XLSX 생성 로직
+- `assets/js/cart-group-calculator.js`: 계산기 화면 동작과 이벤트 연결
 - `data/exchange-rates.json`: GitHub Pages에서 읽는 USD/JPY 수입환율 데이터
 - `scripts/update-exchange-rates.js`: forwarder.kr 고시환율 HTML 파서
 - `.github/workflows/deploy-pages.yml`: 환율 JSON 자동 갱신과 GitHub Pages 배포 워크플로우
