@@ -12,9 +12,11 @@ const runtimeScript = scriptMatch[1].replace(/\s*clearManualRows\(\);[\s\S]*$/, 
 const api = new Function(`${runtimeScript}
 return {
   buildXlsxBytes,
+  cartProductFromRow,
   groupTotals,
   manualRowsFromProducts,
   normalizeManualProducts,
+  parseJpy,
   recommendGroups,
   renderGroups,
   renderProducts,
@@ -45,6 +47,31 @@ function makeSettings(overrides = {}) {
   return settings;
 }
 
+function makeFakeElement({ text = "", value = "", dataset = {}, attrs = {} } = {}) {
+  return {
+    textContent: text,
+    value,
+    dataset,
+    getAttribute(name) {
+      return attrs[name] ?? null;
+    },
+  };
+}
+
+function makeFakeRow({ id = "", text = "", dataset = {}, elements = {}, attrs = {} } = {}) {
+  return {
+    id,
+    textContent: text,
+    dataset,
+    getAttribute(name) {
+      return attrs[name] ?? null;
+    },
+    querySelector(selector) {
+      return elements[selector] || null;
+    },
+  };
+}
+
 const sampleProducts = [
   makeProduct(0, "13225MY9003", "HONDA OEM BearingB, connecting", 4, 1061),
   makeProduct(1, "13225ML0405", "HONDA OEM BearingB, connecting", 4, 1522),
@@ -72,6 +99,49 @@ const xlsxBytes = api.buildXlsxBytes(sampleProducts, recommendation, settings);
 assert(xlsxBytes instanceof Uint8Array, "xlsx output must be bytes");
 assert(xlsxBytes.length > 1000, "xlsx output is unexpectedly small");
 assert.deepStrictEqual([...xlsxBytes.slice(0, 4)], [0x50, 0x4b, 0x03, 0x04]);
+
+assert.strictEqual(api.parseJpy("JPY 1,250"), 1250);
+assert.strictEqual(api.parseJpy("1,250円"), 1250);
+assert.strictEqual(api.parseJpy("￥1,250"), 1250);
+
+const legacyCartRow = makeFakeRow({
+  id: "product-item-13225MY9003",
+  dataset: { sku: "13225MY9003" },
+  elements: {
+    ".product-code .code": makeFakeElement({ text: "13225MY9003" }),
+    ".product-name a": makeFakeElement({ text: "HONDA OEM Bearing" }),
+    ".product-quantity": makeFakeElement({ value: "4" }),
+    ".unit-sub-price": makeFakeElement({ text: "1,061 JPY" }),
+    ".total-sub-price": makeFakeElement({ text: "4,244 JPY" }),
+  },
+});
+assert.deepStrictEqual(api.cartProductFromRow(legacyCartRow, 0), {
+  index: 0,
+  sku: "13225MY9003",
+  code: "13225MY9003",
+  name: "HONDA OEM Bearing",
+  quantity: 4,
+  unitJpy: 1061,
+  totalJpy: 4244,
+});
+
+const alternateCartRow = makeFakeRow({
+  id: "cart-item-99103-MT2-0350",
+  text: "Qty: 2",
+  dataset: { productCode: "99103-MT2-0350", unitPrice: "831" },
+  elements: {
+    ".item-name a": makeFakeElement({ text: "HONDA OEM Jet" }),
+  },
+});
+assert.deepStrictEqual(api.cartProductFromRow(alternateCartRow, 1), {
+  index: 1,
+  sku: "99103-MT2-0350",
+  code: "99103-MT2-0350",
+  name: "HONDA OEM Jet",
+  quantity: 2,
+  unitJpy: 831,
+  totalJpy: 1662,
+});
 
 const unsafeProducts = [
   makeProduct(0, "<img src=x onerror=alert(1)>", "<script>alert(1)</script>", 1, 100),

@@ -410,19 +410,209 @@
   const formatter = new Intl.NumberFormat("ko-KR");
   let latestAnalysis = null;
   const XLSX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  const CART_ROW_SELECTORS = [
+    ".table-cart tbody tr.item",
+    ".table-cart tbody tr[id^='product-item']",
+    ".table-cart tbody tr[data-sku]",
+    ".table-cart tbody tr[data-product-code]",
+    ".table-cart tbody tr[data-product-id]",
+    ".table-cart tbody tr",
+    "tr[id^='product-item']",
+    "tr[data-sku]",
+    "tr[data-product-code]",
+    "tr[data-product-id]",
+    ".cart-item",
+    ".cart-list-item",
+    "[data-cart-item]",
+  ];
+  const PRODUCT_CODE_SELECTORS = [
+    ".product-code .code",
+    ".product-code",
+    ".goods-code",
+    ".item-code",
+    ".sku",
+    "[data-product-code]",
+    "[data-sku]",
+    "input[name='prdSku']",
+    "input[name='sku']",
+    "input[name='productCode']",
+    "input[name='product_code']",
+  ];
+  const PRODUCT_NAME_SELECTORS = [
+    ".product-name a",
+    ".product-name",
+    ".goods-name a",
+    ".goods-name",
+    ".item-name a",
+    ".item-name",
+    ".product-title a",
+    ".product-title",
+    "[data-product-name]",
+  ];
+  const QUANTITY_SELECTORS = [
+    ".product-quantity",
+    ".qty-inp",
+    ".quantity input",
+    ".quantity",
+    ".qty",
+    "input[name='quantity']",
+    "input[name='qty']",
+    "input[name*='quantity' i]",
+    "input[name*='qty' i]",
+    "select[name*='quantity' i]",
+    "select[name*='qty' i]",
+    "[data-quantity]",
+    "[data-qty]",
+  ];
+  const UNIT_PRICE_SELECTORS = [
+    ".unit-sub-price",
+    ".unit-price",
+    ".price-unit",
+    ".product-price",
+    ".item-price",
+    ".price",
+    "[data-unit-price]",
+    "[data-price]",
+  ];
+  const TOTAL_PRICE_SELECTORS = [
+    ".total-sub-price",
+    ".subtotal-price",
+    ".subtotal",
+    ".total-price",
+    ".line-total",
+    ".amount",
+    "[data-total-price]",
+    "[data-subtotal]",
+  ];
 
   function toNumber(value) {
     const number = Number(String(value || "").replace(/,/g, "").trim());
     return Number.isFinite(number) ? number : 0;
   }
 
+  function firstNumber(value) {
+    const match = String(value || "").match(/[\d,]+(?:\.\d+)?/);
+    return match ? toNumber(match[0]) : 0;
+  }
+
   function parseJpy(text) {
-    const match = String(text || "").match(/([\d,]+(?:\.\d+)?)\s*JPY/i);
-    return match ? Math.round(toNumber(match[1])) : 0;
+    const value = String(text || "").replace(/\u00a0/g, " ");
+    const patterns = [
+      /(?:JPY|￥|¥)\s*([\d,]+(?:\.\d+)?)/i,
+      /([\d,]+(?:\.\d+)?)\s*(?:JPY|円)/i,
+    ];
+
+    for (const pattern of patterns) {
+      const match = value.match(pattern);
+      if (match) return Math.round(toNumber(match[1]));
+    }
+
+    return /^[\s\d,.]+$/.test(value) ? Math.round(firstNumber(value)) : 0;
   }
 
   function cleanText(text) {
     return String(text || "").replace(/\s+/g, " ").trim();
+  }
+
+  function datasetValue(element, keys) {
+    for (const key of keys) {
+      const value = element?.dataset?.[key];
+      if (value !== undefined && value !== null && String(value).trim()) {
+        return cleanText(value);
+      }
+    }
+    return "";
+  }
+
+  function attributeValue(element, names) {
+    for (const name of names) {
+      const value = element?.getAttribute?.(name);
+      if (value !== undefined && value !== null && String(value).trim()) {
+        return cleanText(value);
+      }
+    }
+    return "";
+  }
+
+  function firstElement(root, selectors) {
+    for (const selector of selectors) {
+      const element = root?.querySelector?.(selector);
+      if (element) return element;
+    }
+    return null;
+  }
+
+  function textFrom(root, selectors) {
+    const element = firstElement(root, selectors);
+    return cleanText(element?.textContent) ||
+      cleanText(element?.value) ||
+      attributeValue(element, ["value", "title", "aria-label"]);
+  }
+
+  function productCodeFromRow(row) {
+    return textFrom(row, PRODUCT_CODE_SELECTORS) ||
+      datasetValue(row, ["sku", "productCode", "productId", "code"]) ||
+      attributeValue(row, ["data-sku", "data-product-code", "data-product-id"]);
+  }
+
+  function productNameFromRow(row) {
+    return textFrom(row, PRODUCT_NAME_SELECTORS) ||
+      datasetValue(row, ["productName", "name"]) ||
+      attributeValue(row, ["data-product-name", "title", "aria-label"]);
+  }
+
+  function productCodeFromId(id) {
+    const value = cleanText(id);
+    if (!value) return "";
+    const cleaned = value.replace(/^(product-item|cart-item|item)[_-]?/i, "");
+    if (cleaned !== value) return cleanText(cleaned);
+    return /^[A-Z0-9][A-Z0-9._-]{4,}$/i.test(value) ? value : "";
+  }
+
+  function priceFromRow(row, selectors, datasetKeys, attributeNames) {
+    for (const selector of selectors) {
+      const element = row?.querySelector?.(selector);
+      const parsed = parseJpy(
+        cleanText(element?.textContent) ||
+        cleanText(element?.value) ||
+        attributeValue(element, ["value", "data-price", "data-unit-price", "data-total-price", "data-subtotal"]),
+      );
+      if (parsed > 0) return parsed;
+    }
+
+    const dataValue = datasetValue(row, datasetKeys);
+    if (dataValue) {
+      const parsed = parseJpy(dataValue);
+      if (parsed > 0) return parsed;
+    }
+
+    const attrValue = attributeValue(row, attributeNames);
+    if (attrValue) {
+      const parsed = parseJpy(attrValue);
+      if (parsed > 0) return parsed;
+    }
+
+    return 0;
+  }
+
+  function quantityFromRow(row) {
+    const quantityText = textFrom(row, QUANTITY_SELECTORS) ||
+      datasetValue(row, ["quantity", "qty"]) ||
+      attributeValue(row, ["data-quantity", "data-qty"]);
+    const quantity = firstNumber(quantityText);
+    if (quantity > 0) return Math.max(1, Math.round(quantity));
+
+    const rowMatch = cleanText(row?.textContent).match(/(?:수량|数量|qty|quantity)\s*[:：]?\s*([\d,]+)/i);
+    return rowMatch ? Math.max(1, Math.round(toNumber(rowMatch[1]))) : 1;
+  }
+
+  function hasProductSignal(row) {
+    const hasIdentity = Boolean(productCodeFromRow(row) || productNameFromRow(row) || productCodeFromId(row?.id));
+    const hasPrice = Boolean(
+      priceFromRow(row, UNIT_PRICE_SELECTORS, ["unitJpy", "unitPrice", "price"], ["data-unit-price", "data-price"]) ||
+      priceFromRow(row, TOTAL_PRICE_SELECTORS, ["totalJpy", "totalPrice", "subtotal"], ["data-total-price", "data-subtotal"]),
+    );
+    return hasIdentity && hasPrice;
   }
 
   function money(value, digits = 0) {
@@ -902,33 +1092,47 @@
 
   function parseProducts(html) {
     const doc = new DOMParser().parseFromString(html, "text/html");
-    const rows = [...doc.querySelectorAll(".table-cart tbody tr.item, tr[id^='product-item'], tr[data-sku]")];
+    const rows = [];
+    const seen = new Set();
 
-    return rows.map((row, index) => {
-      const quantityInput = row.querySelector(".product-quantity, .qty-inp, input[name='quantity']");
-      const quantity = Math.max(1, Math.round(toNumber(quantityInput?.value || quantityInput?.getAttribute("value") || 1)));
-      const unitJpy = parseJpy(row.querySelector(".unit-sub-price")?.textContent);
-      const totalJpy = parseJpy(row.querySelector(".total-sub-price")?.textContent) || (unitJpy * quantity);
-      const resolvedUnitJpy = unitJpy || Math.round(totalJpy / quantity);
-      const code = cleanText(row.querySelector(".product-code .code")?.textContent) ||
-        cleanText(row.querySelector("input[name='prdSku']")?.value) ||
-        row.dataset.sku ||
-        row.id.replace("product-item-", "") ||
-        `item-${index + 1}`;
-      const name = cleanText(row.querySelector(".product-name a")?.textContent) ||
-        cleanText(row.querySelector(".product-name")?.textContent) ||
-        code;
+    CART_ROW_SELECTORS.forEach((selector) => {
+      doc.querySelectorAll(selector).forEach((row) => {
+        if (seen.has(row)) return;
+        seen.add(row);
+        if (hasProductSignal(row)) rows.push(row);
+      });
+    });
 
-      return {
-        index,
-        sku: row.dataset.sku || row.id.replace("product-item-", "") || code,
-        code,
-        name,
-        quantity,
-        unitJpy: resolvedUnitJpy,
-        totalJpy: totalJpy || resolvedUnitJpy * quantity,
-      };
-    }).filter((item) => item.quantity > 0 && item.unitJpy > 0);
+    const products = [];
+    rows.forEach((row) => {
+      const product = cartProductFromRow(row, products.length);
+      if (product) products.push(product);
+    });
+    return products;
+  }
+
+  function cartProductFromRow(row, index) {
+    const quantity = quantityFromRow(row);
+    const unitJpy = priceFromRow(row, UNIT_PRICE_SELECTORS, ["unitJpy", "unitPrice", "price"], ["data-unit-price", "data-price"]);
+    const totalJpy = priceFromRow(row, TOTAL_PRICE_SELECTORS, ["totalJpy", "totalPrice", "subtotal"], ["data-total-price", "data-subtotal"]) ||
+      (unitJpy * quantity);
+    const resolvedUnitJpy = unitJpy || (totalJpy ? Math.round(totalJpy / quantity) : 0);
+    const code = productCodeFromRow(row) ||
+      productCodeFromId(row?.id) ||
+      `item-${index + 1}`;
+    const name = productNameFromRow(row) || code;
+
+    if (quantity < 1 || resolvedUnitJpy <= 0) return null;
+
+    return {
+      index,
+      sku: datasetValue(row, ["sku", "productCode", "productId"]) || productCodeFromId(row?.id) || code,
+      code,
+      name,
+      quantity,
+      unitJpy: resolvedUnitJpy,
+      totalJpy: totalJpy || resolvedUnitJpy * quantity,
+    };
   }
 
   function normalizeManualProducts(rows) {
