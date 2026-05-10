@@ -8,11 +8,12 @@ const scriptMatch = html.match(/<script>([\s\S]*)<\/script>/);
 
 assert(scriptMatch, "inline script not found");
 
-const runtimeScript = scriptMatch[1].replace(/\s*\$\("#analyzeButton"\)[\s\S]*$/, "");
+const runtimeScript = scriptMatch[1].replace(/\s*clearManualRows\(\);[\s\S]*$/, "");
 const api = new Function(`${runtimeScript}
 return {
   buildXlsxBytes,
   groupTotals,
+  normalizeManualProducts,
   recommendGroups,
   renderGroups,
   renderProducts,
@@ -82,5 +83,26 @@ const oversizeRecommendation = api.recommendGroups(unsafeProducts, makeSettings(
 const oversizeHtml = api.renderGroups(oversizeRecommendation, makeSettings({ limitUsd: 1 }));
 assert(!oversizeHtml.includes("<img"), "oversize product code must not render as raw HTML");
 assert(oversizeHtml.includes("&lt;img src=x onerror=alert(1)&gt;"));
+
+const manualResult = api.normalizeManualProducts([
+  { code: "A-001", name: "Manual Item", quantity: "2", unitJpy: "1500" },
+  { code: "", name: "", quantity: "", unitJpy: "" },
+  { code: "B-002", name: "", quantity: "1", unitJpy: "250" },
+]);
+assert.strictEqual(manualResult.errors.length, 0);
+assert.deepStrictEqual(manualResult.products.map((item) => item.totalJpy), [3000, 250]);
+assert.strictEqual(manualResult.products[1].name, "B-002");
+
+const invalidManualResult = api.normalizeManualProducts([
+  { code: "", name: "Missing code", quantity: "1", unitJpy: "100" },
+  { code: "BAD-QTY", name: "", quantity: "0", unitJpy: "100" },
+  { code: "BAD-PRICE", name: "", quantity: "1", unitJpy: "0" },
+]);
+assert.deepStrictEqual(invalidManualResult.products, []);
+assert.deepStrictEqual(invalidManualResult.errors, [
+  "1행 상품번호를 입력해 주세요.",
+  "2행 수량은 1 이상이어야 합니다.",
+  "3행 단가 JPY는 1 이상이어야 합니다.",
+]);
 
 console.log("cart_group_calculator tests passed");

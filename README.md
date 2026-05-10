@@ -7,7 +7,9 @@ Webike 장바구니 상품가를 관세청 과세환율 기준으로 나눠 보�
 ## 사용 방법
 
 1. `cart_group_calculator.html`을 브라우저에서 연다.
-2. Webike 장바구니 페이지에서 상품 테이블 HTML을 복사해 붙여넣는다.
+2. 입력 방식을 선택한다.
+   - `장바구니 HTML`: Webike 장바구니 페이지에서 상품 테이블 HTML을 복사해 붙여넣는다.
+   - `직접 입력`: 상품번호, 상품명, 수량, 단가 JPY를 행 단위로 입력한다.
 3. 면세 기준, USD 수입환율, JPY 수입환율을 확인한다.
 4. `분석하기`를 누른다.
 5. 추천 주문 그룹을 확인한다.
@@ -16,7 +18,7 @@ Webike 장바구니 상품가를 관세청 과세환율 기준으로 나눠 보�
 ## 계산 기준
 
 - 배송비, 포인트, 쿠폰은 계산하지 않는다.
-- 장바구니에 표시된 상품가 JPY 기준으로만 계산한다.
+- 장바구니에 표시된 상품가 또는 직접 입력한 단가 JPY 기준으로만 계산한다.
 - 150 USD 한도는 다음 식으로 JPY 환산한다.
 
 ```text
@@ -28,7 +30,7 @@ JPY 한도 = 면세 기준 USD * USD 수입환율 / JPY 수입환율
 ## 현재 파일
 
 - `cart_group_calculator.html`: 실제 계산기
-- `tests/cart_group_calculator.test.js`: 계산 그룹, XLSX 생성, 결과 HTML escape 검증
+- `tests/cart_group_calculator.test.js`: 계산 그룹, XLSX 생성, 직접 입력 정규화, 결과 HTML escape 검증
 - `기록/20260506_webike_주문그룹_자동화_설계안.md`: 향후 자동화 설계안
 
 ## 검증
@@ -45,6 +47,7 @@ node tests/cart_group_calculator.test.js
 - 기본 환율 기준 JPY 한도가 `23,893 JPY`인지 확인
 - 추천 그룹이 `21,350 / 21,349 JPY` 두 그룹으로 나뉘는지 확인
 - XLSX 바이트가 생성되는지 확인
+- 직접 입력 행이 계산용 상품 데이터로 정규화되는지 확인
 - 붙여넣은 상품명/품번이 결과 영역에서 HTML로 실행되지 않도록 escape되는지 확인
 
 ## 방향
@@ -54,12 +57,12 @@ node tests/cart_group_calculator.test.js
 - 현재 정적 계산기 유지
 - 수동 환율 입력
 - 장바구니 HTML 붙여넣기
+- 직접 품목 입력
 - 주문 그룹 추천
 - XLSX 출력
 
 ### v1
 
-- 직접 품목 입력 지원
 - CSV/XLSX 입력 지원
 - 결과표 수정 편의성 개선
 - 테스트 케이스 확장

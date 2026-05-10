@@ -28,7 +28,7 @@
       line-height: 1.5;
     }
     main {
-      max-width: 1220px;
+      max-width: 1320px;
       margin: 0 auto;
       padding: 24px 16px 36px;
     }
@@ -82,6 +82,13 @@
     button.secondary {
       background: #475467;
     }
+    button.danger {
+      background: var(--danger);
+    }
+    button.compact {
+      padding: 7px 10px;
+      font-size: 13px;
+    }
     button:disabled {
       background: #98a2b3;
       cursor: not-allowed;
@@ -116,6 +123,49 @@
       flex-wrap: wrap;
       gap: 8px;
       margin-top: 12px;
+    }
+    .mode-control {
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      padding: 4px;
+      margin-bottom: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f8fafc;
+    }
+    .mode-option {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 0;
+      padding: 7px 10px;
+      border-radius: 6px;
+      color: var(--muted);
+      cursor: pointer;
+    }
+    .mode-option input {
+      width: 16px;
+      height: 16px;
+    }
+    .mode-option:has(input:checked) {
+      background: #fff;
+      color: var(--text);
+      box-shadow: 0 0 0 1px rgba(18, 100, 163, .16);
+    }
+    .input-panel[hidden] {
+      display: none;
+    }
+    .manual-table table {
+      min-width: 860px;
+    }
+    .manual-table th:last-child,
+    .manual-table td:last-child {
+      width: 72px;
+      text-align: center;
+    }
+    .manual-table input {
+      height: 36px;
     }
     .check-row {
       display: flex;
@@ -252,6 +302,8 @@
       main { padding: 18px 10px 28px; }
       .controls, .summary { grid-template-columns: 1fr; }
       h1 { font-size: 22px; }
+      .mode-control { width: 100%; }
+      .mode-option { flex: 1 1 100%; }
     }
   </style>
 </head>
@@ -261,9 +313,43 @@
 
   <div class="layout">
     <section class="panel">
-      <h2>장바구니 HTML</h2>
-      <label for="cartHtml">HTML 붙여넣기</label>
-      <textarea id="cartHtml" spellcheck="false" placeholder="Webike 장바구니의 table-cart HTML을 여기에 붙여넣으세요."></textarea>
+      <h2>상품 입력</h2>
+      <div class="mode-control" aria-label="입력 방식">
+        <label class="mode-option">
+          <input type="radio" name="inputMode" value="html" checked>
+          <span>장바구니 HTML</span>
+        </label>
+        <label class="mode-option">
+          <input type="radio" name="inputMode" value="manual">
+          <span>직접 입력</span>
+        </label>
+      </div>
+
+      <div id="htmlInputPanel" class="input-panel">
+        <label for="cartHtml">HTML 붙여넣기</label>
+        <textarea id="cartHtml" spellcheck="false" placeholder="Webike 장바구니의 table-cart HTML을 여기에 붙여넣으세요."></textarea>
+      </div>
+
+      <div id="manualInputPanel" class="input-panel" hidden>
+        <div class="table-wrap manual-table">
+          <table id="manualTable">
+            <thead>
+              <tr>
+                <th>상품번호</th>
+                <th>상품명</th>
+                <th class="num">수량</th>
+                <th class="num">단가(JPY)</th>
+                <th>삭제</th>
+              </tr>
+            </thead>
+            <tbody id="manualRows"></tbody>
+          </table>
+        </div>
+        <div class="button-row">
+          <button type="button" class="secondary compact" id="addManualRowButton">행 추가</button>
+        </div>
+      </div>
+
       <div class="button-row">
         <button type="button" id="analyzeButton">분석하기</button>
         <button type="button" id="exportXlsxButton" disabled>XLSX 내보내기</button>
@@ -837,6 +923,48 @@
     }).filter((item) => item.quantity > 0 && item.unitJpy > 0);
   }
 
+  function normalizeManualProducts(rows) {
+    const products = [];
+    const errors = [];
+
+    rows.forEach((row, rowIndex) => {
+      const code = cleanText(row.code);
+      const name = cleanText(row.name);
+      const quantity = Math.round(toNumber(row.quantity));
+      const unitJpy = Math.round(toNumber(row.unitJpy));
+      const hasAnyValue = code || name || String(row.quantity || "").trim() || String(row.unitJpy || "").trim();
+
+      if (!hasAnyValue) return;
+
+      if (!code) errors.push(`${rowIndex + 1}행 상품번호를 입력해 주세요.`);
+      if (quantity < 1) errors.push(`${rowIndex + 1}행 수량은 1 이상이어야 합니다.`);
+      if (unitJpy <= 0) errors.push(`${rowIndex + 1}행 단가 JPY는 1 이상이어야 합니다.`);
+      if (!code || quantity < 1 || unitJpy <= 0) return;
+
+      products.push({
+        index: products.length,
+        sku: code,
+        code,
+        name: name || code,
+        quantity,
+        unitJpy,
+        totalJpy: quantity * unitJpy,
+      });
+    });
+
+    return { products, errors };
+  }
+
+  function readManualProducts() {
+    const rows = [...document.querySelectorAll("#manualRows tr")].map((row) => ({
+      code: row.querySelector(".manual-code")?.value,
+      name: row.querySelector(".manual-name")?.value,
+      quantity: row.querySelector(".manual-quantity")?.value,
+      unitJpy: row.querySelector(".manual-unit-jpy")?.value,
+    }));
+    return normalizeManualProducts(rows);
+  }
+
   function makeAtoms(products, splitQuantity) {
     const atoms = [];
     products.forEach((product) => {
@@ -1100,6 +1228,17 @@
     };
   }
 
+  function getInputMode() {
+    return document.querySelector("input[name='inputMode']:checked")?.value || "html";
+  }
+
+  function setInputMode(mode) {
+    $("#htmlInputPanel").hidden = mode !== "html";
+    $("#manualInputPanel").hidden = mode !== "manual";
+    clearError();
+    resetExportData();
+  }
+
   function showError(message) {
     const errorBox = $("#errorBox");
     errorBox.textContent = message;
@@ -1112,25 +1251,69 @@
     errorBox.style.display = "none";
   }
 
+  function updateManualRemoveButtons() {
+    const buttons = [...document.querySelectorAll(".manual-remove")];
+    buttons.forEach((button) => {
+      button.disabled = buttons.length <= 1;
+    });
+  }
+
+  function addManualRow(values = {}) {
+    const row = document.createElement("tr");
+    row.innerHTML = `
+      <td><input class="manual-code" type="text" aria-label="상품번호" placeholder="13225MY9003"></td>
+      <td><input class="manual-name" type="text" aria-label="상품명" placeholder="HONDA OEM Ring Set"></td>
+      <td><input class="manual-quantity" type="text" inputmode="numeric" value="1" aria-label="수량"></td>
+      <td><input class="manual-unit-jpy" type="text" inputmode="numeric" aria-label="단가 JPY" placeholder="5599"></td>
+      <td><button type="button" class="danger compact manual-remove">삭제</button></td>
+    `;
+    $("#manualRows").appendChild(row);
+    row.querySelector(".manual-code").value = values.code || "";
+    row.querySelector(".manual-name").value = values.name || "";
+    row.querySelector(".manual-quantity").value = values.quantity || 1;
+    row.querySelector(".manual-unit-jpy").value = values.unitJpy || "";
+    updateManualRemoveButtons();
+  }
+
+  function clearManualRows() {
+    $("#manualRows").innerHTML = "";
+    addManualRow();
+  }
+
   function analyze() {
     clearError();
     resetExportData();
-    const html = $("#cartHtml").value.trim();
     const settings = getSettings();
+    const inputMode = getInputMode();
+    let products = [];
 
-    if (!html) {
-      showError("분석할 HTML을 붙여넣어 주세요.");
-      return;
-    }
     if (!settings.limitUsd || !settings.usdKrw || !settings.jpyKrw) {
       showError("면세 기준과 환율 값을 확인해 주세요.");
       return;
     }
 
-    const products = parseProducts(html);
-    if (!products.length) {
-      showError("상품 행을 찾지 못했습니다. table-cart 영역의 HTML을 붙여넣었는지 확인해 주세요.");
-      return;
+    if (inputMode === "html") {
+      const html = $("#cartHtml").value.trim();
+      if (!html) {
+        showError("분석할 HTML을 붙여넣어 주세요.");
+        return;
+      }
+      products = parseProducts(html);
+      if (!products.length) {
+        showError("상품 행을 찾지 못했습니다. table-cart 영역의 HTML을 붙여넣었는지 확인해 주세요.");
+        return;
+      }
+    } else {
+      const manualResult = readManualProducts();
+      if (manualResult.errors.length) {
+        showError(manualResult.errors[0]);
+        return;
+      }
+      products = manualResult.products;
+      if (!products.length) {
+        showError("직접 입력할 상품을 1개 이상 입력해 주세요.");
+        return;
+      }
     }
 
     const recommendation = recommendGroups(products, settings);
@@ -1143,14 +1326,35 @@
     ].join("");
   }
 
+  clearManualRows();
+  setInputMode(getInputMode());
+
   $("#analyzeButton").addEventListener("click", analyze);
   $("#exportXlsxButton").addEventListener("click", downloadXlsx);
+  $("#addManualRowButton").addEventListener("click", () => {
+    addManualRow();
+    resetExportData();
+  });
+  $("#manualRows").addEventListener("click", (event) => {
+    if (!event.target.classList.contains("manual-remove")) return;
+    const rows = [...document.querySelectorAll("#manualRows tr")];
+    if (rows.length <= 1) return;
+    event.target.closest("tr").remove();
+    updateManualRemoveButtons();
+    resetExportData();
+  });
   $("#clearButton").addEventListener("click", () => {
     $("#cartHtml").value = "";
+    clearManualRows();
     clearError();
     resetExportData();
     $("#resultArea").innerHTML = '<div class="empty">분석 결과가 여기에 표시됩니다.</div>';
   });
+  document.querySelectorAll("input[name='inputMode']").forEach((input) => {
+    input.addEventListener("change", () => setInputMode(getInputMode()));
+  });
+  $("#manualRows").addEventListener("input", resetExportData);
+  $("#manualRows").addEventListener("change", resetExportData);
   ["cartHtml", "limitUsd", "usdKrw", "jpyKrw", "maxGroups", "splitQuantity"].forEach((id) => {
     $(`#${id}`).addEventListener("input", resetExportData);
     $(`#${id}`).addEventListener("change", resetExportData);
