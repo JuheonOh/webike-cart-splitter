@@ -125,6 +125,11 @@ a { color: var(--accent); }
   gap: 10px;
   margin-bottom: 12px;
 }
+.section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .mode-control {
   display: inline-flex;
   flex-wrap: wrap;
@@ -167,6 +172,15 @@ a { color: var(--accent); }
 }
 .manual-table input {
   height: 36px;
+}
+.result-product-table input {
+  min-width: 86px;
+  height: 34px;
+  text-align: right;
+}
+.result-product-table td:nth-child(3),
+.result-product-table td:nth-child(4) {
+  width: 112px;
 }
 .manual-row-imported td {
   animation: manualRowImported 2.4s ease-out;

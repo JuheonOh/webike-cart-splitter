@@ -297,6 +297,11 @@ const unsafeProducts = [
 const productHtml = uiApi.renderProducts(unsafeProducts);
 assert(!productHtml.includes("<script>"), "product name must not render as raw HTML");
 assert(productHtml.includes("&lt;script&gt;alert(1)&lt;/script&gt;"));
+assert(productHtml.includes('data-action="apply-product-edits"'));
+assert(productHtml.includes('class="result-product-quantity result-product-edit"'));
+assert(productHtml.includes('class="result-product-unit-jpy result-product-edit"'));
+assert(productHtml.includes('value="1"'));
+assert(productHtml.includes('value="100"'));
 
 const oversizeRecommendation = api.recommendGroups(unsafeProducts, makeSettings({ limitUsd: 1 }));
 const oversizeHtml = uiApi.renderGroups(oversizeRecommendation, makeSettings({ limitUsd: 1 }));

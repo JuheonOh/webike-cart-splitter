@@ -87,6 +87,11 @@ function resetExportData() {
   setExportEnabled(false);
 }
 
+function markResultEditsDirty() {
+  if (!latestAnalysis) return;
+  setExportEnabled(false);
+}
+
 function downloadXlsx() {
   if (!latestAnalysis) {
     showError("먼저 분석을 실행해 주세요.");
@@ -138,12 +143,16 @@ function renderSummary(products, recommendation, settings) {
 
 function renderProducts(products) {
   const rows = products.map((item) => `
-    <tr>
+    <tr data-product-index="${item.index}">
       <td>${escapeHtml(item.code)}</td>
       <td>${escapeHtml(item.name)}</td>
-      <td class="num">${formatter.format(item.quantity)}</td>
-      <td class="num">${formatter.format(item.unitJpy)}</td>
-      <td class="num">${formatter.format(item.totalJpy)}</td>
+      <td class="num">
+        <input class="result-product-quantity result-product-edit" type="text" inputmode="numeric" aria-label="${escapeHtml(item.code)} 수량" value="${escapeHtml(item.quantity)}">
+      </td>
+      <td class="num">
+        <input class="result-product-unit-jpy result-product-edit" type="text" inputmode="numeric" aria-label="${escapeHtml(item.code)} 단가 JPY" value="${escapeHtml(item.unitJpy)}">
+      </td>
+      <td class="num result-product-total">${formatter.format(item.totalJpy)}</td>
     </tr>
   `).join("");
 
@@ -151,10 +160,13 @@ function renderProducts(products) {
     <section class="panel">
       <div class="section-head">
         <h2>추출된 상품</h2>
-        <button type="button" class="secondary compact" data-action="copy-products-to-manual">직접 입력으로 가져오기</button>
+        <div class="section-actions">
+          <button type="button" class="compact" data-action="apply-product-edits">수정 반영</button>
+          <button type="button" class="secondary compact" data-action="copy-products-to-manual">직접 입력으로 가져오기</button>
+        </div>
       </div>
       <div class="table-wrap">
-        <table>
+        <table class="result-product-table">
           <thead>
             <tr>
               <th>상품번호</th>
@@ -358,12 +370,80 @@ function copyLatestProductsToManual() {
     showError("직접 입력으로 가져올 상품이 없습니다.");
     return;
   }
-  const importedRows = fillManualRows(latestAnalysis.products);
+  const editResult = readResultProductEdits();
+  if (editResult.errors.length) {
+    showError(editResult.errors[0]);
+    setExportEnabled(false);
+    return;
+  }
+
+  const importedRows = fillManualRows(editResult.products);
   document.querySelector("input[name='inputMode'][value='manual']").checked = true;
   setInputMode("manual");
   $("#manualInputPanel").scrollIntoView({ behavior: "smooth", block: "start" });
   highlightManualRows(importedRows);
   window.requestAnimationFrame(() => focusFirstManualRow(importedRows));
+}
+
+function readResultProductEdits() {
+  if (!latestAnalysis?.products?.length) {
+    return { products: [], errors: ["수정 반영할 분석 결과가 없습니다."] };
+  }
+
+  const productMap = new Map(latestAnalysis.products.map((product) => [String(product.index), product]));
+  const rows = [...document.querySelectorAll(".result-product-table tbody tr")].map((row) => {
+    const product = productMap.get(row.dataset.productIndex) || {};
+    return {
+      code: product.code || "",
+      name: product.name || product.code || "",
+      quantity: row.querySelector(".result-product-quantity")?.value,
+      unitJpy: row.querySelector(".result-product-unit-jpy")?.value,
+    };
+  });
+  return normalizeManualProducts(rows);
+}
+
+function updateEditedProductSubtotal(row) {
+  if (!row) return;
+  const quantity = Math.round(toNumber(row.querySelector(".result-product-quantity")?.value));
+  const unitJpy = Math.round(toNumber(row.querySelector(".result-product-unit-jpy")?.value));
+  const totalCell = row.querySelector(".result-product-total");
+  if (!totalCell) return;
+  totalCell.textContent = quantity > 0 && unitJpy > 0 ? formatter.format(quantity * unitJpy) : "-";
+}
+
+function renderAnalysis(products, settings) {
+  const recommendation = recommendGroups(products, settings);
+  latestAnalysis = { products, recommendation, settings };
+  setExportEnabled(true);
+  $("#resultArea").innerHTML = [
+    renderSummary(products, recommendation, settings),
+    renderGroups(recommendation, settings),
+    renderProducts(products),
+  ].join("");
+}
+
+function applyProductEdits() {
+  clearError();
+  const settings = getSettings();
+  if (!settings.limitUsd || !settings.usdKrw || !settings.jpyKrw) {
+    showError("면세 기준과 환율 값을 확인해 주세요.");
+    return;
+  }
+
+  const editResult = readResultProductEdits();
+  if (editResult.errors.length) {
+    showError(editResult.errors[0]);
+    setExportEnabled(false);
+    return;
+  }
+  if (!editResult.products.length) {
+    showError("수정 반영할 상품을 1개 이상 입력해 주세요.");
+    setExportEnabled(false);
+    return;
+  }
+
+  renderAnalysis(editResult.products, settings);
 }
 
 function applyBulkPasteToManual() {
@@ -424,14 +504,7 @@ function analyze() {
     }
   }
 
-  const recommendation = recommendGroups(products, settings);
-  latestAnalysis = { products, recommendation, settings };
-  setExportEnabled(true);
-  $("#resultArea").innerHTML = [
-    renderSummary(products, recommendation, settings),
-    renderGroups(recommendation, settings),
-    renderProducts(products),
-  ].join("");
+  renderAnalysis(products, settings);
 }
 
 applyStoredSettingsToForm();
@@ -442,8 +515,23 @@ setInputMode(getInputMode());
 $("#analyzeButton").addEventListener("click", analyze);
 $("#exportXlsxButton").addEventListener("click", downloadXlsx);
 $("#resultArea").addEventListener("click", (event) => {
-  if (event.target.dataset.action !== "copy-products-to-manual") return;
-  copyLatestProductsToManual();
+  if (event.target.dataset.action === "copy-products-to-manual") {
+    copyLatestProductsToManual();
+    return;
+  }
+  if (event.target.dataset.action === "apply-product-edits") {
+    applyProductEdits();
+  }
+});
+$("#resultArea").addEventListener("input", (event) => {
+  if (!event.target.classList.contains("result-product-edit")) return;
+  markResultEditsDirty();
+  updateEditedProductSubtotal(event.target.closest("tr"));
+});
+$("#resultArea").addEventListener("change", (event) => {
+  if (!event.target.classList.contains("result-product-edit")) return;
+  markResultEditsDirty();
+  updateEditedProductSubtotal(event.target.closest("tr"));
 });
 $("#addManualRowButton").addEventListener("click", () => {
   addManualRow();
