@@ -124,6 +124,14 @@
       gap: 8px;
       margin-top: 12px;
     }
+    .section-head {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
     .mode-control {
       display: inline-flex;
       flex-wrap: wrap;
@@ -965,6 +973,15 @@
     return normalizeManualProducts(rows);
   }
 
+  function manualRowsFromProducts(products) {
+    return products.map((item) => ({
+      code: item.code,
+      name: item.name,
+      quantity: item.quantity,
+      unitJpy: item.unitJpy,
+    }));
+  }
+
   function makeAtoms(products, splitQuantity) {
     const atoms = [];
     products.forEach((product) => {
@@ -1134,7 +1151,10 @@
 
     return `
       <section class="panel">
-        <h2>추출된 상품</h2>
+        <div class="section-head">
+          <h2>추출된 상품</h2>
+          <button type="button" class="secondary compact" data-action="copy-products-to-manual">직접 입력으로 가져오기</button>
+        </div>
         <div class="table-wrap">
           <table>
             <thead>
@@ -1280,6 +1300,24 @@
     addManualRow();
   }
 
+  function fillManualRows(products) {
+    const rows = manualRowsFromProducts(products);
+    $("#manualRows").innerHTML = "";
+    rows.forEach((row) => addManualRow(row));
+    if (!rows.length) addManualRow();
+  }
+
+  function copyLatestProductsToManual() {
+    if (!latestAnalysis?.products?.length) {
+      showError("직접 입력으로 가져올 상품이 없습니다.");
+      return;
+    }
+    fillManualRows(latestAnalysis.products);
+    document.querySelector("input[name='inputMode'][value='manual']").checked = true;
+    setInputMode("manual");
+    $("#manualInputPanel").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   function analyze() {
     clearError();
     resetExportData();
@@ -1331,6 +1369,10 @@
 
   $("#analyzeButton").addEventListener("click", analyze);
   $("#exportXlsxButton").addEventListener("click", downloadXlsx);
+  $("#resultArea").addEventListener("click", (event) => {
+    if (event.target.dataset.action !== "copy-products-to-manual") return;
+    copyLatestProductsToManual();
+  });
   $("#addManualRowButton").addEventListener("click", () => {
     addManualRow();
     resetExportData();

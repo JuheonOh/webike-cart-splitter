@@ -13,6 +13,7 @@ const api = new Function(`${runtimeScript}
 return {
   buildXlsxBytes,
   groupTotals,
+  manualRowsFromProducts,
   normalizeManualProducts,
   recommendGroups,
   renderGroups,
@@ -104,5 +105,25 @@ assert.deepStrictEqual(invalidManualResult.errors, [
   "2행 수량은 1 이상이어야 합니다.",
   "3행 단가 JPY는 1 이상이어야 합니다.",
 ]);
+
+const copiedManualRows = api.manualRowsFromProducts(sampleProducts.slice(0, 2));
+assert.deepStrictEqual(copiedManualRows, [
+  {
+    code: "13225MY9003",
+    name: "HONDA OEM BearingB, connecting",
+    quantity: 4,
+    unitJpy: 1061,
+  },
+  {
+    code: "13225ML0405",
+    name: "HONDA OEM BearingB, connecting",
+    quantity: 4,
+    unitJpy: 1522,
+  },
+]);
+assert.deepStrictEqual(
+  api.normalizeManualProducts(copiedManualRows).products.map((item) => item.totalJpy),
+  [4244, 6088],
+);
 
 console.log("cart_group_calculator tests passed");
