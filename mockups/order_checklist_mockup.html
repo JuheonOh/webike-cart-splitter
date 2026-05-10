@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>주문별 체크리스트 목업</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f6f8;
+      --panel: #fff;
+      --text: #202631;
+      --muted: #657286;
+      --line: #d9e0e8;
+      --head: #edf2f7;
+      --accent: #1264a3;
+      --success: #087443;
+      --warn: #b54708;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Arial, "Noto Sans KR", sans-serif;
+      line-height: 1.5;
+    }
+    main {
+      max-width: 1320px;
+      margin: 0 auto;
+      padding: 24px 16px 40px;
+    }
+    h1 {
+      margin: 0 0 18px;
+      font-size: 26px;
+      letter-spacing: 0;
+    }
+    h2 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+    button {
+      border: 0;
+      border-radius: 6px;
+      padding: 10px 14px;
+      background: var(--accent);
+      color: #fff;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button.secondary { background: #475467; }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .button-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .metric {
+      min-height: 88px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-left: 4px solid var(--accent);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .metric b {
+      display: block;
+      margin-top: 4px;
+      font-size: 20px;
+    }
+    .metric small {
+      display: block;
+      margin-top: 3px;
+      color: var(--muted);
+    }
+    .checklist-layout {
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      gap: 16px;
+      align-items: start;
+    }
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      overflow: hidden;
+    }
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 13px 14px;
+      border-bottom: 1px solid var(--line);
+      background: var(--head);
+    }
+    .order-list {
+      display: grid;
+      gap: 8px;
+      padding: 12px;
+    }
+    .order-button {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 6px;
+      width: 100%;
+      padding: 11px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--text);
+      text-align: left;
+    }
+    .order-button.active {
+      border-color: rgba(18, 100, 163, .45);
+      box-shadow: 0 0 0 3px rgba(18, 100, 163, .12);
+    }
+    .order-button small {
+      grid-column: 1 / -1;
+      color: var(--muted);
+      font-weight: 400;
+    }
+    .badge {
+      align-self: start;
+      border-radius: 999px;
+      padding: 2px 8px;
+      background: #e7f6ed;
+      color: var(--success);
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .badge.warn {
+      background: #fff4e5;
+      color: var(--warn);
+    }
+    .order-detail {
+      display: grid;
+      gap: 14px;
+    }
+    .check-progress {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .progress-track {
+      flex: 1 1 180px;
+      height: 8px;
+      border-radius: 999px;
+      background: #e6ebf1;
+      overflow: hidden;
+    }
+    .progress-fill {
+      width: 43%;
+      height: 100%;
+      background: var(--accent);
+    }
+    .table-wrap { overflow-x: auto; }
+    table {
+      width: 100%;
+      min-width: 820px;
+      border-collapse: collapse;
+    }
+    th, td {
+      padding: 10px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: middle;
+      font-size: 14px;
+    }
+    th {
+      background: #f8fafc;
+      color: #344054;
+      font-size: 13px;
+    }
+    td.num, th.num {
+      text-align: right;
+      white-space: nowrap;
+    }
+    tr:last-child td { border-bottom: 0; }
+    .check-cell {
+      width: 48px;
+      text-align: center;
+    }
+    .check-cell input {
+      width: 18px;
+      height: 18px;
+    }
+    .memo {
+      padding: 12px 14px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .memo strong { color: var(--text); }
+
+    @media (max-width: 920px) {
+      .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .checklist-layout { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 620px) {
+      main { padding: 18px 10px 30px; }
+      .summary { grid-template-columns: 1fr; }
+      .toolbar { align-items: stretch; }
+      .button-row button { flex: 1 1 100%; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <div class="toolbar">
+    <h1>주문별 체크리스트</h1>
+    <div class="button-row">
+      <button type="button">체크리스트 XLSX</button>
+      <button type="button" class="secondary">인쇄용 보기</button>
+    </div>
+  </div>
+
+  <section class="summary" aria-label="요약">
+    <div class="metric"><span>추천 주문 수</span><b>2개</b><small>수량 분할 허용</small></div>
+    <div class="metric"><span>전체 상품가</span><b>42,699 JPY</b><small>약 268.06 USD</small></div>
+    <div class="metric"><span>주문 A</span><b>21,350 JPY</b><small>여유 약 15.97 USD</small></div>
+    <div class="metric"><span>주문 B</span><b>21,349 JPY</b><small>여유 약 15.97 USD</small></div>
+  </section>
+
+  <section class="checklist-layout">
+    <aside class="panel">
+      <div class="panel-head">
+        <h2>주문 선택</h2>
+        <span class="badge warn">3 / 7</span>
+      </div>
+      <div class="order-list">
+        <button type="button" class="order-button active">
+          <b>주문 A</b>
+          <span class="badge">134.03 USD</span>
+          <small>7개 품목, 12개 수량</small>
+        </button>
+        <button type="button" class="order-button">
+          <b>주문 B</b>
+          <span class="badge">134.03 USD</span>
+          <small>7개 품목, 12개 수량</small>
+        </button>
+      </div>
+      <p class="memo">
+        <strong>목업 의도:</strong> 계산 결과를 주문 실행용 체크리스트로 바꿔, 실제 Webike 장바구니에서 수량을 나눌 때 빠뜨린 품목을 줄인다.
+      </p>
+    </aside>
+
+    <section class="panel order-detail">
+      <div class="panel-head">
+        <div>
+          <h2>주문 A 체크리스트</h2>
+          <div class="check-progress">
+            <span>진행률 3 / 7</span>
+            <div class="progress-track" aria-hidden="true"><div class="progress-fill"></div></div>
+          </div>
+        </div>
+        <span class="badge">약 197,957원</span>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th class="check-cell">완료</th>
+              <th>상품번호</th>
+              <th>상품명</th>
+              <th class="num">담을 수량</th>
+              <th class="num">단가(JPY)</th>
+              <th class="num">소계(JPY)</th>
+              <th>확인 메모</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="check-cell"><input type="checkbox" checked></td>
+              <td>13225MY9003</td>
+              <td>HONDA OEM BearingB, connecting</td>
+              <td class="num">2</td>
+              <td class="num">1,061</td>
+              <td class="num">2,122</td>
+              <td>수량 분할</td>
+            </tr>
+            <tr>
+              <td class="check-cell"><input type="checkbox" checked></td>
+              <td>13225ML0405</td>
+              <td>HONDA OEM BearingB, connecting</td>
+              <td class="num">4</td>
+              <td class="num">1,522</td>
+              <td class="num">6,088</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td class="check-cell"><input type="checkbox" checked></td>
+              <td>99103-MT2-0350</td>
+              <td>HONDA OEM Jet, Slow #35</td>
+              <td class="num">1</td>
+              <td class="num">831</td>
+              <td class="num">831</td>
+              <td>주문 B에 3개 별도</td>
+            </tr>
+            <tr>
+              <td class="check-cell"><input type="checkbox"></td>
+              <td>91331PC9003</td>
+              <td>HONDA OEM O-Ring 21.2X2.4</td>
+              <td class="num">1</td>
+              <td class="num">209</td>
+              <td class="num">209</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td class="check-cell"><input type="checkbox"></td>
+              <td>91311MCE900</td>
+              <td>HONDA OEM O-ring 47.5X2</td>
+              <td class="num">1</td>
+              <td class="num">287</td>
+              <td class="num">287</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td class="check-cell"><input type="checkbox"></td>
+              <td>13011MV4305</td>
+              <td>HONDA OEM Ring Set, Piston Std</td>
+              <td class="num">2</td>
+              <td class="num">5,599</td>
+              <td class="num">11,198</td>
+              <td>주문 B에 2개 별도</td>
+            </tr>
+            <tr>
+              <td class="check-cell"><input type="checkbox"></td>
+              <td>91310KT8003</td>
+              <td>HONDA OEM O-Ring 74.5X2</td>
+              <td class="num">1</td>
+              <td class="num">615</td>
+              <td class="num">615</td>
+              <td></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="memo">
+        주문 실행 화면에서는 각 행을 체크하면서 Webike 장바구니 수량을 맞춘다. 체크 상태는 브라우저 임시 상태로 두고, 저장 기능은 별도 단계에서 판단한다.
+      </p>
+    </section>
+  </section>
+</main>
+</body>
+</html>
