@@ -17,8 +17,10 @@ Webike 장바구니 상품가를 관세청 과세환율 기준으로 나눠 보�
 4. `분석하기`를 누른다.
 5. 추천 주문 그룹을 확인한다.
 6. 장바구니 HTML 분석값을 수정해야 하면 `추출된 상품` 표의 수량/단가를 고치고 `수정 반영`을 누른다. 직접 입력 테이블에서 보정하려면 `직접 입력으로 가져오기`를 사용한다.
-7. Webike 장바구니에 한 번에 담아 보고 싶으면 `Webike 장바구니 담기`에서 스크립트를 만들고 복사한다.
-8. 필요하면 `XLSX 내보내기`로 결과를 저장한다.
+7. Webike 장바구니에 담을 때는 추천 주문 그룹의 `스크립트 만들기`를 눌러 해당 그룹 스크립트를 클립보드에 복사한 뒤 Webike DevTools Console에 붙여넣는다. 입력값, 분석 결과, 그룹 카드의 복사/최종 금액 확인/주문 완료 상태는 브라우저 `localStorage`에 자동 저장되어 새로고침 후에도 복원된다.
+8. 주문 그룹별 자동화 입력 파일이 필요하면 `그룹 CSV 내보내기`로 그룹별 CSV가 들어 있는 ZIP을 저장한다.
+9. 추출된 상품의 수량/단가를 고치면 내보내기와 스크립트 복사가 잠기며, `수정 반영`을 눌러 주문 그룹을 다시 계산해야 한다.
+10. 필요하면 `XLSX 내보내기`로 결과를 저장한다. `추출상품` 시트의 `상품URL` 값은 클릭 가능한 링크로 저장된다.
 
 입력한 면세 기준, USD/JPY 수입환율, 최대 주문 수, 수량 분할 설정은 브라우저에 저장되어 다음 실행 때 복원됩니다.
 
@@ -50,7 +52,7 @@ npm run webike:quote -- --mode cart --input parts.csv --headed
 입력 CSV/TSV 컬럼:
 
 ```text
-part_number,product_url,quantity,name,unit_jpy
+part_number,quantity,name,unit_jpy,product_url
 ```
 
 - `quote-api` 모드: `product_url`이 있으면 상세 페이지를 바로 읽고, 없으면 `part_number`로 Webike 검색 API에서 상품 상세 URL을 1개로 확정한 뒤 진행한다.
@@ -96,6 +98,7 @@ JPY 한도 = 면세 기준 USD * USD 수입환율 / JPY 수입환율
 - `cart_group_calculator.html`: 실제 계산기
 - `assets/css/cart-group-calculator.css`: 계산기 스타일
 - `assets/js/calculator-core.js`: 계산, 파싱, XLSX 생성 로직
+- `assets/js/calculator-grouping.js`: 주문 그룹 추천 알고리즘
 - `assets/js/cart-group-calculator.js`: 계산기 화면 동작과 이벤트 연결
 - `assets/js/cost-comparison-core.js`: 단일/분할 주문 비용 비교와 실측 배송비 비교 로직
 - `data/exchange-rates.json`: GitHub Pages에서 읽는 USD/JPY 수입환율 데이터
@@ -104,6 +107,7 @@ JPY 한도 = 면세 기준 USD * USD 수입환율 / JPY 수입환율
 - `.github/workflows/deploy-pages.yml`: 환율 JSON 자동 갱신과 GitHub Pages 배포 워크플로우
 - `tests/cart_group_calculator.test.js`: 계산 그룹, XLSX 생성, 직접 입력 정규화, CSV/TSV 붙여넣기, 결과 HTML escape 검증
 - `tests/cost_comparison.test.js`: 비용 비교, 실측 배송비 비교, Node CLI 입력/검증 로직 검증
+- `tests/e2e_cart_group_calculator.test.js`: Playwright 기반 직접 입력, 그룹 스크립트 복사, 수정 반영 필요 UI 검증
 - `tests/update_exchange_rates.test.js`: forwarder.kr 고시환율 HTML 파싱 검증
 - `기록/20260506_webike_주문그룹_자동화_설계안.md`: 향후 자동화 설계안
 
@@ -123,17 +127,28 @@ node tests/cost_comparison.test.js
 npm test
 ```
 
+브라우저 E2E는 Playwright 설치 후 별도로 실행한다.
+
+```bash
+npm install
+npm run webike:install
+npm run test:e2e
+```
+
 검증 항목:
 
 - 샘플 상품 합계가 `42,699 JPY`인지 확인
 - 기본 환율 기준 JPY 한도가 `23,539 JPY`인지 확인
 - 추천 그룹이 `21,350 / 21,349 JPY` 두 그룹으로 나뉘는지 확인
 - XLSX 바이트가 생성되는지 확인
+- XLSX `추출상품` 시트의 `상품URL` 셀이 클릭 가능한 하이퍼링크로 생성되는지 확인
 - 직접 입력 행이 계산용 상품 데이터로 정규화되는지 확인
+- 장바구니 HTML에서 추출한 상품URL이 결과 표, XLSX, 그룹 CSV, 스크립트 데이터에 유지되는지 확인
 - 분석 결과 상품이 직접 입력 행으로 변환되는지 확인
 - 분석 결과 상품 표가 수량/단가 편집 입력을 렌더링하는지 확인
-- 계산기 화면에서 Webike DevTools 장바구니 담기 스크립트를 생성하는지 확인
+- 계산기 화면에서 추천 주문 그룹별 Webike DevTools 장바구니 담기 스크립트 버튼과 실행 상태 체크를 렌더링하는지 확인
 - CSV/TSV 붙여넣기가 직접 입력 행으로 변환되는지 확인
+- 그룹 CSV ZIP 출력이 Node CLI 입력 컬럼과 왕복되는지 확인
 - 환율과 주문 설정이 저장값으로 정규화되는지 확인
 - 자동 환율 JSON 값이 계산기 입력용 데이터로 정규화되는지 확인
 - 장바구니 행에서 JPY/円/￥ 가격 표기를 파싱하는지 확인
@@ -144,6 +159,7 @@ npm test
 - Node CLI가 CSV/TSV 입력을 병합하고 장바구니 측정 실패를 성공으로 처리하지 않는지 확인
 - Node CLI가 Webike 상품 상세 fixture에서 가격/무게/부피를 파싱하고 배송비 API 응답으로 실측 비교를 만드는지 확인
 - Node CLI가 Webike 검색 결과로 DevTools 장바구니 일괄 담기 스크립트를 생성하는지 확인
+- Playwright에서 직접 입력, 그룹별 스크립트 복사, 수정 반영 필요 알림이 동작하는지 확인
 
 ## 방향
 
@@ -159,7 +175,6 @@ npm test
 
 ### v1
 
-- XLSX 파일 입력 지원
 - 결과표 수정 편의성 개선
 - 테스트 케이스 확장
 

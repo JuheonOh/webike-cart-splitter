@@ -33,9 +33,7 @@ jobs:
           node-version: 20
 
       - name: Verify scripts
-        run: |
-          node tests/cart_group_calculator.test.js
-          node tests/update_exchange_rates.test.js
+        run: npm test
 
       - name: Update exchange rates
         if: github.event_name != 'push'
