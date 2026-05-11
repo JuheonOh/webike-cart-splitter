@@ -1,0 +1,1627 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Webike 주문 마법사</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f7fb;
+      --panel: #ffffff;
+      --line: #d9e0ea;
+      --text: #172033;
+      --muted: #667085;
+      --primary: #1769aa;
+      --primary-strong: #0c4f86;
+      --success: #0f7a4f;
+      --danger: #bf2f38;
+      --warn: #9a6200;
+      --soft: #eaf3fb;
+      --radius: 8px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+
+    main {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 28px 0 44px;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: flex-end;
+      margin-bottom: 18px;
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin: 0;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    h1 {
+      font-size: 28px;
+    }
+
+    h2 {
+      font-size: 20px;
+    }
+
+    h3 {
+      font-size: 16px;
+    }
+
+    p {
+      margin: 0;
+    }
+
+    button,
+    input,
+    textarea,
+    select {
+      font: inherit;
+    }
+
+    button {
+      border: 0;
+      border-radius: 7px;
+      background: var(--primary);
+      color: #fff;
+      padding: 9px 14px;
+      cursor: pointer;
+      font-weight: 700;
+    }
+
+    button:hover:not(:disabled) {
+      background: var(--primary-strong);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    button.secondary {
+      background: #eef2f6;
+      color: #25324b;
+    }
+
+    button.secondary:hover:not(:disabled) {
+      background: #dde5ef;
+    }
+
+    button.success {
+      background: var(--success);
+    }
+
+    button.danger {
+      background: var(--danger);
+    }
+
+    label {
+      display: block;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    input,
+    textarea,
+    select {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      color: var(--text);
+      padding: 9px 10px;
+    }
+
+    textarea {
+      min-height: 150px;
+      resize: vertical;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .subtle {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .wizard {
+      display: grid;
+      grid-template-columns: 260px minmax(0, 1fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .steps {
+      position: sticky;
+      top: 16px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 10px;
+    }
+
+    .step-button {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 30px minmax(0, 1fr);
+      gap: 10px;
+      align-items: center;
+      margin: 0;
+      padding: 10px;
+      background: transparent;
+      color: var(--text);
+      text-align: left;
+      border-radius: 7px;
+      font-weight: 700;
+    }
+
+    .step-button:hover:not(:disabled),
+    .step-button.active {
+      background: var(--soft);
+      color: var(--primary-strong);
+    }
+
+    .step-number {
+      display: inline-flex;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      align-items: center;
+      justify-content: center;
+      background: #e5ebf3;
+      color: #334155;
+      font-size: 13px;
+    }
+
+    .step-button.active .step-number,
+    .step-button.done .step-number {
+      background: var(--primary);
+      color: #fff;
+    }
+
+    .content {
+      display: grid;
+      gap: 14px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 18px;
+    }
+
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .grid.four {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .wide {
+      grid-column: 1 / -1;
+    }
+
+    .button-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin-top: 14px;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fff;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 720px;
+    }
+
+    th,
+    td {
+      padding: 9px 10px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      white-space: nowrap;
+    }
+
+    th {
+      background: #f8fafc;
+      font-size: 13px;
+      color: #45546c;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .num {
+      text-align: right;
+    }
+
+    .status-line {
+      display: none;
+      border-radius: 7px;
+      padding: 10px 12px;
+      margin-top: 12px;
+      font-weight: 700;
+    }
+
+    .status-line.ok {
+      display: block;
+      background: #eaf8f0;
+      color: var(--success);
+    }
+
+    .status-line.bad {
+      display: block;
+      background: #fff0f1;
+      color: var(--danger);
+    }
+
+    .status-line.warn {
+      display: block;
+      background: #fff7e8;
+      color: var(--warn);
+    }
+
+    .step-panel {
+      display: none;
+    }
+
+    .step-panel.active {
+      display: block;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 12px;
+      background: #fff;
+    }
+
+    .metric b {
+      display: block;
+      margin-top: 4px;
+      font-size: 18px;
+    }
+
+    .strategy-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .strategy {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 14px;
+      background: #fff;
+    }
+
+    .strategy.recommended {
+      border-color: var(--success);
+      box-shadow: 0 0 0 2px rgba(15, 122, 79, 0.12);
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      background: #eef2f6;
+      color: #334155;
+      padding: 3px 8px;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .badge.ok {
+      background: #eaf8f0;
+      color: var(--success);
+    }
+
+    .badge.bad {
+      background: #fff0f1;
+      color: var(--danger);
+    }
+
+    .group-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .group-box {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 12px;
+      background: #fff;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    @media (max-width: 880px) {
+      main {
+        width: min(100% - 20px, 1180px);
+        padding-top: 18px;
+      }
+
+      header,
+      .wizard,
+      .grid,
+      .grid.four,
+      .strategy-grid,
+      .metric-grid {
+        grid-template-columns: 1fr;
+      }
+
+      header {
+        display: grid;
+      }
+
+      .steps {
+        position: static;
+      }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>Webike 주문 마법사</h1>
+      <p class="subtle">CSV 입력부터 배송비 견적, 단일/분할 총비용 비교, 장바구니 담기까지 순서대로 진행합니다.</p>
+    </div>
+    <a class="subtle" href="cart_group_calculator.html">기존 계산기 열기</a>
+  </header>
+
+  <div class="wizard">
+    <nav class="steps" aria-label="진행 단계">
+      <button type="button" class="step-button active" data-step-target="1">
+        <span class="step-number">1</span>
+        <span>상품 입력</span>
+      </button>
+      <button type="button" class="step-button" data-step-target="2">
+        <span class="step-number">2</span>
+        <span>견적 스크립트</span>
+      </button>
+      <button type="button" class="step-button" data-step-target="3">
+        <span class="step-number">3</span>
+        <span>견적 결과</span>
+      </button>
+      <button type="button" class="step-button" data-step-target="4">
+        <span class="step-number">4</span>
+        <span>총비용 비교</span>
+      </button>
+      <button type="button" class="step-button" data-step-target="5">
+        <span class="step-number">5</span>
+        <span>장바구니 담기</span>
+      </button>
+    </nav>
+
+    <div class="content">
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>계산 기준</h2>
+            <p class="subtle">견적 스크립트 생성 시점의 기준으로 Webike 배송비와 총비용을 계산합니다.</p>
+          </div>
+        </div>
+        <div class="grid four">
+          <div>
+            <label for="limitUsd">면세 기준 USD</label>
+            <input id="limitUsd" type="number" min="1" step="0.01" value="150">
+          </div>
+          <div>
+            <label for="usdKrw">USD 수입환율</label>
+            <input id="usdKrw" type="number" min="1" step="0.01" value="1465.73">
+          </div>
+          <div>
+            <label for="jpyKrw">JPY 수입환율</label>
+            <input id="jpyKrw" type="number" min="0.0001" step="0.001" value="9.3399">
+          </div>
+          <div>
+            <label for="maxGroups">최대 주문 수</label>
+            <input id="maxGroups" type="number" min="1" step="1" value="8">
+          </div>
+          <div>
+            <label for="shippingService">배송 서비스</label>
+            <select id="shippingService">
+              <option value="">최저가 자동 선택</option>
+              <option value="SEA">SEA - 해상 운송</option>
+              <option value="STD">STD - Standard/EMS</option>
+              <option value="FEDEXIE">FEDEXIE - FedEx Economy</option>
+            </select>
+          </div>
+          <div>
+            <label for="dutyRate">관세율</label>
+            <input id="dutyRate" type="number" min="0" step="0.01" value="8">
+          </div>
+          <div>
+            <label for="vatRate">부가세율</label>
+            <input id="vatRate" type="number" min="0" step="0.01" value="10">
+          </div>
+          <div>
+            <label for="splitQuantity">수량 분할</label>
+            <select id="splitQuantity">
+              <option value="yes">같은 상품 수량 분할 허용</option>
+              <option value="no">상품 행 단위 유지</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel step-panel active" data-step-panel="1">
+        <div class="panel-head">
+          <div>
+            <h2>1단계. 상품 입력</h2>
+            <p class="subtle">CSV 파일을 선택하거나 엑셀/CSV 내용을 붙여넣습니다.</p>
+          </div>
+        </div>
+        <div class="grid">
+          <div>
+            <label for="csvFile">CSV 파일</label>
+            <input id="csvFile" type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values">
+          </div>
+          <div>
+            <label for="inputHint">권장 컬럼</label>
+            <input id="inputHint" type="text" value="part_number,quantity,name,unit_jpy,product_url" readonly>
+          </div>
+          <div class="wide">
+            <label for="pasteInput">CSV/TSV 붙여넣기</label>
+            <textarea id="pasteInput" spellcheck="false" placeholder="part_number,quantity,name,unit_jpy,product_url&#10;34901KY2702,2,Headlight valve,,"></textarea>
+          </div>
+        </div>
+        <div class="button-row">
+          <button type="button" id="parseInputButton">상품 목록 반영</button>
+          <button type="button" class="secondary" id="clearInputButton">비우기</button>
+        </div>
+        <div id="inputStatus" class="status-line"></div>
+        <div id="inputPreview" class="table-wrap hidden" style="margin-top: 14px;"></div>
+      </section>
+
+      <section class="panel step-panel" data-step-panel="2">
+        <div class="panel-head">
+          <div>
+            <h2>2단계. Webike 견적 스크립트</h2>
+            <p class="subtle">Webike 페이지에서 실행하면 상품 상세와 배송비 API를 조회하고 결과 JSON을 만듭니다.</p>
+          </div>
+        </div>
+        <div class="button-row">
+          <button type="button" id="copyQuoteScriptButton" disabled>견적 스크립트 복사</button>
+          <button type="button" class="secondary" id="showQuoteScriptButton" disabled>스크립트 보기</button>
+        </div>
+        <div id="quoteScriptStatus" class="status-line"></div>
+        <textarea id="quoteScriptOutput" class="hidden" readonly style="margin-top: 14px;"></textarea>
+      </section>
+
+      <section class="panel step-panel" data-step-panel="3">
+        <div class="panel-head">
+          <div>
+            <h2>3단계. 견적 결과 붙여넣기</h2>
+            <p class="subtle">Webike에서 생성된 JSON을 붙여넣으면 다음 단계에서 총비용을 비교합니다.</p>
+          </div>
+        </div>
+        <label for="quoteResultInput">견적 결과 JSON</label>
+        <textarea id="quoteResultInput" spellcheck="false" placeholder="{ ... }"></textarea>
+        <div class="button-row">
+          <button type="button" id="applyQuoteResultButton">견적 결과 반영</button>
+        </div>
+        <div id="quoteResultStatus" class="status-line"></div>
+        <div id="quoteResultPreview" style="margin-top: 14px;"></div>
+      </section>
+
+      <section class="panel step-panel" data-step-panel="4">
+        <div class="panel-head">
+          <div>
+            <h2>4단계. 단일/분할 총비용 비교</h2>
+            <p class="subtle">상품가, 배송비, 예상 관세/부가세를 합산해 더 낮은 쪽을 표시합니다.</p>
+          </div>
+        </div>
+        <div id="comparisonArea"></div>
+      </section>
+
+      <section class="panel step-panel" data-step-panel="5">
+        <div class="panel-head">
+          <div>
+            <h2>5단계. 장바구니 담기</h2>
+            <p class="subtle">추천 주문 그룹별로 Webike 페이지에서 실행할 장바구니 담기 스크립트를 복사합니다.</p>
+          </div>
+        </div>
+        <div id="cartScriptArea"></div>
+      </section>
+    </div>
+  </div>
+</main>
+
+<script src="assets/js/calculator-grouping.js"></script>
+<script src="assets/js/calculator-core.js"></script>
+<script src="assets/js/cost-comparison-core.js"></script>
+<script>
+const $ = (selector) => document.querySelector(selector);
+const $$ = (selector) => [...document.querySelectorAll(selector)];
+const cartCore = window.WebikeCartCore;
+const costCore = window.WebikeCostComparisonCore;
+const formatter = new Intl.NumberFormat("ko-KR");
+
+const state = {
+  step: 1,
+  inputRows: [],
+  quoteScript: "",
+  quoteResult: null,
+  products: [],
+  recommendation: null,
+  comparison: null,
+  quoteSettings: null,
+};
+
+function toNumber(value) {
+  return Number(String(value ?? "").replace(/,/g, "").trim()) || 0;
+}
+
+function money(value, digits = 0) {
+  return Number(value || 0).toLocaleString("ko-KR", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[<>&'"]/g, (char) => ({
+    "<": "&lt;",
+    ">": "&gt;",
+    "&": "&amp;",
+    "'": "&#39;",
+    '"': "&quot;",
+  }[char]));
+}
+
+function showStatus(id, type, message) {
+  const element = $(id);
+  element.className = `status-line ${type || ""}`;
+  element.textContent = message || "";
+}
+
+function clearStatus(id) {
+  const element = $(id);
+  element.className = "status-line";
+  element.textContent = "";
+}
+
+function getSettings() {
+  const limitUsd = toNumber($("#limitUsd").value);
+  const usdKrw = toNumber($("#usdKrw").value);
+  const jpyKrw = toNumber($("#jpyKrw").value);
+  return {
+    limitUsd,
+    usdKrw,
+    jpyKrw,
+    limitJpy: limitUsd && usdKrw && jpyKrw ? (limitUsd * usdKrw) / jpyKrw : 0,
+    maxGroups: Math.max(1, Math.round(toNumber($("#maxGroups").value))),
+    splitQuantity: $("#splitQuantity").value !== "no",
+    shippingService: $("#shippingService").value.trim().toUpperCase(),
+    importDutyRate: toNumber($("#dutyRate").value) > 1 ? toNumber($("#dutyRate").value) / 100 : toNumber($("#dutyRate").value),
+    vatRate: toNumber($("#vatRate").value) > 1 ? toNumber($("#vatRate").value) / 100 : toNumber($("#vatRate").value),
+  };
+}
+
+function normalizeHeader(value) {
+  return String(value ?? "").trim().toLowerCase().replace(/[\s_()/-]/g, "");
+}
+
+function parseDelimitedLine(line, delimiter) {
+  if (delimiter === "\t") return line.split("\t").map((cell) => cell.trim());
+  const cells = [];
+  let current = "";
+  let quoted = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const next = line[index + 1];
+    if (char === '"' && quoted && next === '"') {
+      current += '"';
+      index += 1;
+    } else if (char === '"') {
+      quoted = !quoted;
+    } else if (char === delimiter && !quoted) {
+      cells.push(current.trim());
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+
+  cells.push(current.trim());
+  return cells;
+}
+
+function parseDelimitedRows(text) {
+  const value = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+  if (!value) return [];
+  const delimiter = value.includes("\t") ? "\t" : ",";
+  return value.split("\n")
+    .map((line) => parseDelimitedLine(line, delimiter))
+    .filter((row) => row.some((cell) => String(cell || "").trim()));
+}
+
+function findColumn(headers, names, fallback) {
+  const index = headers.findIndex((header) => names.includes(header));
+  return index >= 0 ? index : fallback;
+}
+
+function parseInputRows(text) {
+  const rawRows = parseDelimitedRows(text);
+  const errors = [];
+  if (!rawRows.length) return { rows: [], errors: ["상품 목록을 입력해 주세요."] };
+
+  const headers = rawRows[0].map(normalizeHeader);
+  const hasHeader = headers.some((header) => (
+    ["partnumber", "partno", "품번", "상품번호", "producturl", "url", "링크"].includes(header)
+  ));
+  const columns = {
+    partNumber: findColumn(headers, ["partnumber", "partno", "품번", "상품번호", "sku", "code"], hasHeader ? -1 : 0),
+    productUrl: findColumn(headers, ["producturl", "url", "상품url", "상품주소", "링크", "productlink"], -1),
+    quantity: findColumn(headers, ["quantity", "qty", "수량", "count"], hasHeader ? -1 : 2),
+    name: findColumn(headers, ["name", "productname", "상품명", "제품명"], hasHeader ? -1 : 1),
+    unitJpy: findColumn(headers, ["unitjpy", "unitprice", "price", "단가jpy", "단가", "jpy"], hasHeader ? -1 : 3),
+  };
+  if (hasHeader && columns.quantity < 0) columns.quantity = -1;
+
+  const dataRows = rawRows.slice(hasHeader ? 1 : 0);
+  const rows = [];
+  dataRows.forEach((row, rowIndex) => {
+    const partNumber = columns.partNumber >= 0 ? String(row[columns.partNumber] || "").trim() : "";
+    const productUrl = columns.productUrl >= 0 ? String(row[columns.productUrl] || "").trim() : "";
+    const quantity = Math.max(0, Math.round(toNumber(columns.quantity >= 0 ? row[columns.quantity] : 1) || 1));
+    const name = columns.name >= 0 ? String(row[columns.name] || "").trim() : "";
+    const unitJpy = Math.round(toNumber(columns.unitJpy >= 0 ? row[columns.unitJpy] : 0));
+
+    if (!partNumber && !productUrl && !name && !unitJpy) return;
+    if (!partNumber && !productUrl) errors.push(`${rowIndex + 1}번째 데이터 행의 상품번호 또는 상품 URL이 비어 있습니다.`);
+    if (quantity < 1) errors.push(`${partNumber || productUrl || rowIndex + 1} 수량은 1 이상이어야 합니다.`);
+
+    rows.push({
+      partNumber,
+      productUrl,
+      quantity: quantity || 1,
+      name,
+      unitJpy,
+    });
+  });
+
+  if (!rows.length) errors.push("상품 행을 찾지 못했습니다.");
+  return { rows, errors };
+}
+
+function renderInputPreview() {
+  const box = $("#inputPreview");
+  if (!state.inputRows.length) {
+    box.classList.add("hidden");
+    box.innerHTML = "";
+    return;
+  }
+  box.classList.remove("hidden");
+  box.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>상품번호</th>
+          <th>상품 URL</th>
+          <th>상품명</th>
+          <th class="num">수량</th>
+          <th class="num">입력 단가</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${state.inputRows.map((row) => `
+          <tr>
+            <td>${escapeHtml(row.partNumber || "-")}</td>
+            <td class="mono">${escapeHtml(row.productUrl || "-")}</td>
+            <td>${escapeHtml(row.name || "-")}</td>
+            <td class="num">${money(row.quantity)}</td>
+            <td class="num">${row.unitJpy ? `${money(row.unitJpy)} JPY` : "-"}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function canEnterStep(step) {
+  if (step <= 1) return true;
+  if (step === 2) return state.inputRows.length > 0;
+  if (step === 3) return state.inputRows.length > 0;
+  if (step === 4) return Boolean(state.comparison);
+  if (step === 5) return Boolean(state.products.length && state.recommendation?.groups?.length);
+  return false;
+}
+
+function setStep(step) {
+  if (!canEnterStep(step)) return;
+  state.step = step;
+  $$(".step-button").forEach((button) => {
+    const target = Number(button.dataset.stepTarget);
+    button.classList.toggle("active", target === step);
+    button.classList.toggle("done", canEnterStep(target + 1));
+    button.disabled = !canEnterStep(target);
+  });
+  $$(".step-panel").forEach((panel) => {
+    panel.classList.toggle("active", Number(panel.dataset.stepPanel) === step);
+  });
+}
+
+function updateStepState() {
+  setStep(state.step);
+}
+
+async function copyText(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.focus({ preventScroll: true });
+  textarea.select();
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  return copied;
+}
+
+function safeJsonForScript(value) {
+  return JSON.stringify(value, null, 2)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026");
+}
+
+function buildQuoteScript() {
+  const items = state.inputRows.map((row) => ({
+    partNumber: row.partNumber,
+    productUrl: row.productUrl,
+    quantity: row.quantity,
+    name: row.name,
+    unitJpy: row.unitJpy,
+  }));
+  const settings = getSettings();
+
+  return `// Webike Cart Splitter quote script.
+// Open https://www.japan-webike.kr/, then paste this whole script into DevTools Console.
+(async function () {
+  const items = ${safeJsonForScript(items)};
+  const settings = ${safeJsonForScript(settings)};
+  const requiredHost = "www.japan-webike.kr";
+  const searchEndpoint = "/api-search-es.html";
+  const defaultShippingApiUrl = "https://japan.webike.net/api_shipping.html";
+
+  if (location.hostname !== requiredHost) {
+    console.error("Webike Korea 페이지에서 실행해 주세요: https://" + requiredHost + "/");
+    return;
+  }
+
+  function cleanText(value) {
+    return String(value == null ? "" : value).replace(/\\s+/g, " ").trim();
+  }
+
+  function toNumber(value) {
+    return Number(String(value == null ? "" : value).replace(/,/g, "").trim()) || 0;
+  }
+
+  function normalizePartNumber(value) {
+    return cleanText(value).replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  }
+
+  function collectStrings(value, output) {
+    output = output || [];
+    if (typeof value === "string") {
+      output.push(value);
+      return output;
+    }
+    if (Array.isArray(value)) {
+      value.forEach(function (item) { collectStrings(item, output); });
+      return output;
+    }
+    if (value && typeof value === "object") {
+      Object.values(value).forEach(function (item) { collectStrings(item, output); });
+    }
+    return output;
+  }
+
+  function productUrlsFromText(text) {
+    const urls = [];
+    const pattern = /https?:\\/\\/www\\.japan-webike\\.kr\\/products\\/\\d+\\.html|\\/products\\/\\d+\\.html/g;
+    for (const match of String(text || "").matchAll(pattern)) {
+      urls.push(new URL(match[0], location.origin).href);
+    }
+    return urls;
+  }
+
+  function productUrlFromSearchData(data, item) {
+    if (data && data.redirectUrl) return new URL(data.redirectUrl, location.origin).href;
+    const expected = normalizePartNumber(item.partNumber);
+    const candidates = collectStrings(data).flatMap(function (text) {
+      return productUrlsFromText(text).map(function (url) {
+        return { url: url, text: text };
+      });
+    });
+    const exact = candidates.find(function (candidate) {
+      return normalizePartNumber(candidate.text).includes(expected);
+    });
+    if (exact) return exact.url;
+    if (candidates.length === 1) return candidates[0].url;
+    throw new Error(item.partNumber + " 검색 결과에서 상품 상세 URL을 1개로 확정하지 못했습니다.");
+  }
+
+  function jsVariable(html, name) {
+    const pattern = new RegExp("(?:var|let|const)\\\\s+" + name + "\\\\s*=\\\\s*([^;\\\\n]+)", "i");
+    const raw = cleanText((html.match(pattern) || [])[1] || "");
+    return raw.replace(/^['"]|['"]$/g, "");
+  }
+
+  function firstValue(doc, selectors) {
+    for (const selector of selectors) {
+      const element = doc.querySelector(selector);
+      if (!element) continue;
+      const value = element.value || element.dataset.prdid || element.dataset.prdId || element.dataset.priceRetail || element.textContent;
+      if (cleanText(value)) return cleanText(value);
+    }
+    return "";
+  }
+
+  async function fetchText(url, fetchOptions) {
+    const response = await fetch(url, fetchOptions || { credentials: "include" });
+    if (!response.ok) throw new Error("HTTP " + response.status + ": " + url);
+    return response.text();
+  }
+
+  async function fetchJson(url, fetchOptions) {
+    const text = await fetchText(url, fetchOptions);
+    try {
+      return JSON.parse(text);
+    } catch (error) {
+      throw new Error("JSON 응답을 파싱하지 못했습니다: " + url);
+    }
+  }
+
+  async function resolveProductUrl(item) {
+    if (item.productUrl) return new URL(item.productUrl, location.origin).href;
+    const params = new URLSearchParams({
+      search: "",
+      "p.k": item.partNumber,
+      "p.ref": "product-search-es",
+      smp: "sp"
+    });
+    return productUrlFromSearchData(await fetchJson(searchEndpoint + "?" + params), item);
+  }
+
+  function parseProductDetail(html, productUrl, item) {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const productId = firstValue(doc, ["#prod_id", "input[name='prod_id']", "[data-prdId]", "[data-prdid]"]) || jsVariable(html, "productsId") || (productUrl.match(/\\/products\\/(\\d+)\\.html/i) || [])[1] || "";
+    const partNumber = firstValue(doc, ["#product_id"]) || jsVariable(html, "productsModel") || item.partNumber || productId;
+    const unitJpy = Math.round(toNumber(firstValue(doc, ["#priceYen", "input[name='priceYen']", "[data-priceRetail]"]) || jsVariable(html, "priceYen") || item.unitJpy));
+    const name = jsVariable(html, "SYOUHIN_NAME") || doc.querySelector("h1")?.textContent || item.name || partNumber || productId;
+    return {
+      index: item.index,
+      code: cleanText(partNumber || item.partNumber || productId),
+      partNumber: cleanText(partNumber),
+      name: cleanText(name),
+      quantity: Math.max(1, Math.round(toNumber(item.quantity))),
+      unitJpy: unitJpy,
+      totalJpy: unitJpy * Math.max(1, Math.round(toNumber(item.quantity))),
+      productUrl: productUrl,
+      productId: cleanText(productId),
+      shippingWeight: toNumber(jsVariable(html, "productWeight")),
+      shippingVolume: toNumber(jsVariable(html, "productVolume")),
+      countryIso2: cleanText(jsVariable(html, "currentCountryIso2") || "KR").toUpperCase(),
+      shopCode: cleanText(jsVariable(html, "shopCode") || "9000"),
+      shippingApiUrl: cleanText(jsVariable(html, "API_SHIPPING_URL") || defaultShippingApiUrl),
+      canNotAddCart: ["1", "true", "yes", "y"].includes(cleanText(jsVariable(html, "canNotAddCart")).toLowerCase()),
+      restrictedCountry: ["1", "true", "yes", "y"].includes(cleanText(jsVariable(html, "restrictedCountry")).toLowerCase()),
+      optionRequired: Boolean(doc.querySelector(".option-select, [name='selectedOptions']"))
+    };
+  }
+
+  function validateProduct(product, item) {
+    const errors = [];
+    if (!product.productId) errors.push("상품 ID를 찾지 못했습니다.");
+    if (!product.code) errors.push("부품번호를 찾지 못했습니다.");
+    if (!product.unitJpy) errors.push("JPY 단가를 찾지 못했습니다.");
+    if (!product.shippingWeight) errors.push("productWeight 값을 찾지 못했습니다.");
+    if (!product.shippingVolume) errors.push("productVolume 값을 찾지 못했습니다.");
+    if (product.canNotAddCart) errors.push("장바구니 담기 불가 상태입니다.");
+    if (product.restrictedCountry) errors.push("배송 제한 국가 상품입니다.");
+    if (product.optionRequired) errors.push("옵션 선택이 필요한 상품입니다.");
+    if (item.partNumber) {
+      const requested = normalizePartNumber(item.partNumber);
+      const actual = [product.code, product.productId].map(normalizePartNumber).filter(Boolean);
+      if (!actual.includes(requested)) errors.push("요청 상품번호(" + item.partNumber + ")와 상세(" + product.code + ")가 다릅니다.");
+    }
+    return errors;
+  }
+
+  function makeAtoms(products, splitQuantity) {
+    const atoms = [];
+    products.forEach(function (product) {
+      if (splitQuantity) {
+        for (let count = 0; count < product.quantity; count += 1) {
+          atoms.push({ productIndex: product.index, code: product.code, productUrl: product.productUrl || "", name: product.name, quantity: 1, unitJpy: product.unitJpy, totalJpy: product.unitJpy });
+        }
+      } else {
+        atoms.push({ productIndex: product.index, code: product.code, productUrl: product.productUrl || "", name: product.name, quantity: product.quantity, unitJpy: product.unitJpy, totalJpy: product.totalJpy });
+      }
+    });
+    return atoms;
+  }
+
+  function twoGroupDp(atoms, limitJpy) {
+    const total = atoms.reduce(function (sum, item) { return sum + item.totalJpy; }, 0);
+    const dp = new Map([[0, null]]);
+    atoms.forEach(function (atom, index) {
+      Array.from(dp.keys()).forEach(function (sum) {
+        const next = sum + atom.totalJpy;
+        if (next <= limitJpy && !dp.has(next)) dp.set(next, { previous: sum, index: index });
+      });
+    });
+    let bestSum = null;
+    dp.forEach(function (_, sum) {
+      const other = total - sum;
+      if (other > limitJpy) return;
+      if (bestSum === null || Math.abs(total / 2 - sum) < Math.abs(total / 2 - bestSum)) bestSum = sum;
+    });
+    if (bestSum === null) return null;
+    const selected = new Set();
+    let cursor = bestSum;
+    while (cursor > 0) {
+      const node = dp.get(cursor);
+      selected.add(node.index);
+      cursor = node.previous;
+    }
+    const groups = [[], []];
+    atoms.forEach(function (atom, index) {
+      groups[selected.has(index) ? 0 : 1].push(atom);
+    });
+    return groups;
+  }
+
+  function firstFitDecreasing(atoms, groupCount, limitJpy) {
+    const groups = Array.from({ length: groupCount }, function () { return []; });
+    const sums = Array(groupCount).fill(0);
+    const sorted = atoms.slice().sort(function (a, b) { return b.totalJpy - a.totalJpy; });
+    for (const atom of sorted) {
+      let target = -1;
+      let lowestSum = Infinity;
+      for (let index = 0; index < groupCount; index += 1) {
+        if (sums[index] + atom.totalJpy <= limitJpy && sums[index] < lowestSum) {
+          target = index;
+          lowestSum = sums[index];
+        }
+      }
+      if (target === -1) return null;
+      groups[target].push(atom);
+      sums[target] += atom.totalJpy;
+    }
+    return groups.filter(function (group) { return group.length > 0; });
+  }
+
+  function recommendGroups(products, groupSettings) {
+    const atoms = makeAtoms(products, groupSettings.splitQuantity);
+    const totalJpy = atoms.reduce(function (sum, item) { return sum + item.totalJpy; }, 0);
+    const oversize = atoms.filter(function (item) { return item.totalJpy > groupSettings.limitJpy; });
+    if (oversize.length) return { totalJpy: totalJpy, groups: [], oversize: oversize, atoms: atoms };
+    const minimumGroups = Math.max(1, Math.ceil(totalJpy / groupSettings.limitJpy));
+    if (minimumGroups === 1) return { totalJpy: totalJpy, groups: [atoms], oversize: [], atoms: atoms };
+    if (minimumGroups === 2) {
+      const exactTwoGroups = twoGroupDp(atoms, groupSettings.limitJpy);
+      if (exactTwoGroups) return { totalJpy: totalJpy, groups: exactTwoGroups, oversize: [], atoms: atoms };
+    }
+    for (let count = minimumGroups; count <= groupSettings.maxGroups; count += 1) {
+      const groups = firstFitDecreasing(atoms, count, groupSettings.limitJpy);
+      if (groups) return { totalJpy: totalJpy, groups: groups, oversize: [], atoms: atoms };
+    }
+    return { totalJpy: totalJpy, groups: [], oversize: [], atoms: atoms };
+  }
+
+  function productsFromGroup(group, products) {
+    const quantities = new Map();
+    group.forEach(function (atom) {
+      quantities.set(atom.productIndex, (quantities.get(atom.productIndex) || 0) + atom.quantity);
+    });
+    return Array.from(quantities.entries()).map(function (entry) {
+      const product = products.find(function (item) { return item.index === entry[0]; });
+      const quantity = entry[1];
+      return Object.assign({}, product, { quantity: quantity, totalJpy: quantity * product.unitJpy });
+    });
+  }
+
+  function shipmentMetrics(products) {
+    return products.reduce(function (sum, item) {
+      const quantity = Math.max(1, Math.round(toNumber(item.quantity)));
+      const totalJpy = Math.round(toNumber(item.totalJpy || item.unitJpy * quantity));
+      return {
+        amountJpy: sum.amountJpy + totalJpy,
+        weightPoint: Number((sum.weightPoint + toNumber(item.shippingWeight) * quantity).toFixed(2)),
+        volumePoint: Number((sum.volumePoint + toNumber(item.shippingVolume) * quantity).toFixed(2))
+      };
+    }, { amountJpy: 0, weightPoint: 0, volumePoint: 0 });
+  }
+
+  function decimalParam(value) {
+    return Number(toNumber(value).toFixed(2)).toString();
+  }
+
+  function buildShippingRequest(products) {
+    const first = products[0] || {};
+    const metrics = shipmentMetrics(products);
+    const url = new URL(first.shippingApiUrl || defaultShippingApiUrl);
+    url.searchParams.set("wp", decimalParam(metrics.weightPoint));
+    url.searchParams.set("vl", decimalParam(metrics.volumePoint));
+    url.searchParams.set("to", cleanText(first.countryIso2 || "KR").toUpperCase());
+    url.searchParams.set("sc", cleanText(first.shopCode || "9000"));
+    url.searchParams.set("amount", decimalParam(metrics.amountJpy));
+    return { url: url.href, metrics: metrics };
+  }
+
+  function normalizeShippingResponse(data) {
+    const response = data.response || data || {};
+    const status = cleanText(response.status || "OK").toUpperCase();
+    const results = Array.isArray(response.results) ? response.results : [];
+    if (status !== "OK") throw new Error("배송비 API 상태가 OK가 아닙니다: " + (response.status || "unknown"));
+    if (!results.length) throw new Error("배송비 API 결과가 비어 있습니다.");
+    return results.map(function (item) {
+      return {
+        serviceCode: cleanText(item.service_code || item.serviceCode),
+        serviceId: cleanText(item.service_id_dobar || item.serviceId),
+        costJpy: Math.round(toNumber(item.cost)),
+        durationMin: Math.round(toNumber(item.duration_min || item.durationMin)),
+        durationMax: Math.round(toNumber(item.duration_max || item.durationMax)),
+        type: cleanText(item.type)
+      };
+    }).filter(function (item) {
+      return item.serviceCode && item.costJpy >= 0;
+    }).sort(function (a, b) {
+      return a.costJpy - b.costJpy;
+    });
+  }
+
+  function selectShippingCandidate(candidates) {
+    const serviceCode = cleanText(settings.shippingService).toUpperCase();
+    if (!serviceCode) return candidates[0];
+    const selected = candidates.find(function (item) { return item.serviceCode.toUpperCase() === serviceCode; });
+    if (!selected) throw new Error("배송 서비스 " + serviceCode + "를 배송비 API 결과에서 찾지 못했습니다.");
+    return selected;
+  }
+
+  async function quoteShipment(products, label) {
+    const request = buildShippingRequest(products);
+    const candidates = normalizeShippingResponse(await fetchJson(request.url, { credentials: "omit" }));
+    const selected = selectShippingCandidate(candidates);
+    return {
+      label: label,
+      productJpy: request.metrics.amountJpy,
+      shippingJpy: selected.costJpy,
+      shippingServiceCode: selected.serviceCode,
+      shippingType: selected.type,
+      products: products.map(function (item) {
+        return { code: item.code, name: item.name, quantity: item.quantity, unitJpy: item.unitJpy, totalJpy: item.totalJpy, productId: item.productId, productUrl: item.productUrl };
+      }),
+      request: request,
+      shippingCandidates: candidates
+    };
+  }
+
+  function splitUnavailableReason(recommendation) {
+    if (recommendation.groups && recommendation.groups.length > 1) return "";
+    if (recommendation.groups && recommendation.groups.length === 1) return "전체 상품가가 면세 기준 안이라 분할 주문이 필요하지 않습니다.";
+    if (recommendation.oversize && recommendation.oversize.length) return "단일 계산 단위가 면세 한도를 초과했습니다.";
+    return "지정한 최대 주문 수 안에서 분할 그룹을 찾지 못했습니다.";
+  }
+
+  function showResult(result) {
+    const json = JSON.stringify(result, null, 2);
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "position:fixed;inset:16px;z-index:2147483647;background:#fff;border:2px solid #1769aa;border-radius:8px;padding:14px;box-shadow:0 10px 32px rgba(0,0,0,.22);display:flex;flex-direction:column;gap:10px;";
+    wrap.innerHTML = '<div style="font:700 16px system-ui">Webike 견적 결과</div><textarea style="flex:1;width:100%;font:12px ui-monospace,Menlo,Consolas,monospace"></textarea><div style="display:flex;gap:8px;justify-content:flex-end"><button data-copy>결과 복사</button><button data-close>닫기</button></div>';
+    wrap.querySelector("textarea").value = json;
+    wrap.querySelector("[data-close]").onclick = function () { wrap.remove(); };
+    wrap.querySelector("[data-copy]").onclick = async function () {
+      try {
+        await navigator.clipboard.writeText(json);
+        this.textContent = "복사됨";
+      } catch (error) {
+        wrap.querySelector("textarea").focus();
+        wrap.querySelector("textarea").select();
+      }
+    };
+    document.body.appendChild(wrap);
+    navigator.clipboard?.writeText(json).catch(function () {});
+    console.log("Webike 견적 결과:", result);
+  }
+
+  const products = [];
+  const automationResults = [];
+  for (const [index, item] of items.entries()) {
+    const sourceItem = Object.assign({}, item, { index: index });
+    const prefix = "[" + (index + 1) + "/" + items.length + "] " + (item.partNumber || item.productUrl);
+    try {
+      console.log(prefix + " 상품 상세 확인");
+      const productUrl = await resolveProductUrl(sourceItem);
+      const product = parseProductDetail(await fetchText(productUrl), productUrl, sourceItem);
+      const errors = validateProduct(product, sourceItem);
+      automationResults.push({ rowIndex: index + 1, partNumber: sourceItem.partNumber, productUrl: productUrl, status: errors.length ? "failed" : "parsed", errors: errors, product: product });
+      if (errors.length) {
+        console.error(prefix + " 실패", errors);
+        continue;
+      }
+      products.push(product);
+      console.log(prefix + " 완료: " + product.code + ", " + product.unitJpy + " JPY");
+    } catch (error) {
+      automationResults.push({ rowIndex: index + 1, partNumber: sourceItem.partNumber, productUrl: sourceItem.productUrl, status: "failed", errors: [error.message] });
+      console.error(prefix + " 실패", error);
+    }
+  }
+
+  if (automationResults.some(function (item) { return item.status === "failed"; }) || !products.length) {
+    showResult({
+      source: "webike-cart-splitter-wizard",
+      status: "failed",
+      generatedAt: new Date().toISOString(),
+      settings: settings,
+      products: products,
+      automationResults: automationResults
+    });
+    return;
+  }
+
+  const groupSettings = Object.assign({}, settings, {
+    limitJpy: settings.limitUsd * settings.usdKrw / settings.jpyKrw
+  });
+  const recommendation = recommendGroups(products, groupSettings);
+  const singleShipment = await quoteShipment(products, "한 번에 주문");
+  const splitShipments = [];
+  if (recommendation.groups.length > 1) {
+    for (const [index, group] of recommendation.groups.entries()) {
+      splitShipments.push(await quoteShipment(productsFromGroup(group, products), "분할 주문 " + (index + 1)));
+    }
+  }
+
+  showResult({
+    source: "webike-cart-splitter-wizard",
+    status: "measured",
+    generatedAt: new Date().toISOString(),
+    settings: settings,
+    products: products,
+    recommendationSummary: {
+      totalJpy: recommendation.totalJpy,
+      groupCount: recommendation.groups.length,
+      oversizeCount: recommendation.oversize.length
+    },
+    measurement: {
+      singleShipment: singleShipment,
+      splitShipments: splitShipments,
+      splitUnavailableReason: splitUnavailableReason(recommendation)
+    },
+    automationResults: automationResults
+  });
+})();
+`;
+}
+
+function buildAddCartScript(items) {
+  const safeItems = items.map((item) => ({
+    partNumber: item.code,
+    productsId: item.productId,
+    quantity: item.quantity,
+    name: item.name,
+  })).filter((item) => item.productsId && item.quantity > 0);
+
+  return `// Webike Cart Splitter add-cart script.
+// Open https://www.japan-webike.kr/, then paste this whole script into DevTools Console.
+(async () => {
+  const items = ${safeJsonForScript(safeItems)};
+  const endpoint = "/api_shopping_cart.html?action=add_product&ajax_action=1";
+  const failures = [];
+
+  if (location.hostname !== "www.japan-webike.kr") {
+    console.error("Webike Korea 페이지에서 실행해 주세요: https://www.japan-webike.kr/");
+    return;
+  }
+
+  function responseLooksFailed(parsed, text) {
+    if (parsed && typeof parsed === "object") {
+      const result = String(parsed.result || parsed.status || parsed.resultcode || "").toLowerCase();
+      const message = String(parsed.message || parsed.errmsg || parsed.errsmsg || "").toLowerCase();
+      return ["error", "failed", "fail", "ng"].includes(result) || message.includes("error") || message.includes("fail");
+    }
+    return /(?:error|failed|fail|오류|실패)/i.test(String(text || ""));
+  }
+
+  async function addItem(item, index) {
+    console.log(\`[\${index + 1}/\${items.length}] \${item.partNumber} 장바구니 담기 요청\`);
+    const response = await fetch(endpoint, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "X-Requested-With": "XMLHttpRequest",
+      },
+      body: new URLSearchParams({
+        products_id: item.productsId,
+        cart_quantity: String(item.quantity),
+      }),
+    });
+    const text = await response.text();
+    let parsed = null;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      parsed = null;
+    }
+    if (!response.ok || responseLooksFailed(parsed, text)) {
+      throw new Error(\`\${response.status} \${text.slice(0, 240)}\`);
+    }
+    console.log(\`[\${index + 1}/\${items.length}] \${item.partNumber} 완료\`);
+  }
+
+  for (const [index, item] of items.entries()) {
+    try {
+      await addItem(item, index);
+    } catch (error) {
+      failures.push({ item, error: error.message });
+      console.error(\`[\${index + 1}/\${items.length}] \${item.partNumber} 실패\`, error);
+    }
+  }
+
+  if (failures.length) {
+    console.error("장바구니 담기 실패 상품:", failures);
+    return;
+  }
+
+  console.log(\`완료: \${items.length}개 상품을 장바구니에 담았습니다.\`);
+  location.href = "/shopping_cart.html";
+})();
+`;
+}
+
+function aggregateGroupWithProductIds(group) {
+  const map = new Map();
+  group.forEach((atom) => {
+    const product = state.products.find((item) => item.index === atom.productIndex) || {};
+    const key = `${atom.productIndex}:${product.productId || atom.code}`;
+    const current = map.get(key) || {
+      code: product.code || atom.code,
+      productId: product.productId || "",
+      productUrl: product.productUrl || atom.productUrl || "",
+      name: product.name || atom.name,
+      quantity: 0,
+      unitJpy: product.unitJpy || atom.unitJpy,
+      subtotalJpy: 0,
+    };
+    current.quantity += atom.quantity;
+    current.subtotalJpy += atom.totalJpy;
+    map.set(key, current);
+  });
+  return [...map.values()].sort((a, b) => b.subtotalJpy - a.subtotalJpy);
+}
+
+function renderQuoteResultPreview() {
+  const box = $("#quoteResultPreview");
+  if (!state.quoteResult) {
+    box.innerHTML = "";
+    return;
+  }
+  const failures = state.quoteResult.automationResults?.filter((item) => item.status === "failed") || [];
+  box.innerHTML = `
+    <div class="metric-grid">
+      <div class="metric"><span class="subtle">조회 상품</span><b>${money(state.products.length)}개</b></div>
+      <div class="metric"><span class="subtle">실패 행</span><b>${money(failures.length)}개</b></div>
+      <div class="metric"><span class="subtle">상태</span><b>${escapeHtml(state.quoteResult.status || "-")}</b></div>
+    </div>
+    ${failures.length ? `
+      <div class="table-wrap" style="margin-top: 12px;">
+        <table>
+          <thead><tr><th>행</th><th>상품</th><th>실패 사유</th></tr></thead>
+          <tbody>
+            ${failures.map((item) => `
+              <tr>
+                <td>${escapeHtml(item.rowIndex)}</td>
+                <td>${escapeHtml(item.partNumber || item.productUrl || "-")}</td>
+                <td>${escapeHtml((item.errors || []).join(" / "))}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    ` : ""}
+  `;
+}
+
+function renderComparison() {
+  const box = $("#comparisonArea");
+  if (!state.comparison) {
+    box.innerHTML = '<p class="subtle">먼저 견적 결과를 반영해 주세요.</p>';
+    return;
+  }
+  const strategies = state.comparison.strategies || [];
+  const single = strategies.find((item) => item.code === "single_order");
+  const split = strategies.find((item) => item.code === "split_tax_free");
+  const cheapest = state.comparison.cheapestCode;
+
+  function strategyHtml(strategy) {
+    if (!strategy?.available) {
+      return `
+        <article class="strategy">
+          <h3>${escapeHtml(strategy?.label || "-")}</h3>
+          <p class="subtle">${escapeHtml(strategy?.reason || "비교할 수 없습니다.")}</p>
+        </article>
+      `;
+    }
+    return `
+      <article class="strategy ${strategy.code === cheapest ? "recommended" : ""}">
+        <div class="panel-head" style="margin-bottom: 10px;">
+          <h3>${escapeHtml(strategy.label)}</h3>
+          ${strategy.code === cheapest ? '<span class="badge ok">추천</span>' : ""}
+        </div>
+        <div class="metric-grid">
+          <div class="metric"><span class="subtle">상품가</span><b>${money(strategy.totals.productKrw)}원</b></div>
+          <div class="metric"><span class="subtle">배송비</span><b>${money(strategy.totals.shippingKrw)}원</b></div>
+          <div class="metric"><span class="subtle">예상 세금</span><b>${money(strategy.totals.taxKrw)}원</b></div>
+        </div>
+        <p style="margin-top: 12px;"><b>총액 ${money(strategy.totals.totalKrw)}원</b></p>
+        <p class="subtle">주문 ${money(strategy.shipmentCount)}건 · 상품 ${money(strategy.totals.productJpy)} JPY · 배송비 ${money(strategy.totals.shippingJpy)} JPY</p>
+      </article>
+    `;
+  }
+
+  const diff = state.comparison.differenceKrw === null ? "" : `<p class="subtle" style="margin-top: 12px;">차액: ${money(state.comparison.differenceKrw)}원</p>`;
+  box.innerHTML = `
+    <div class="strategy-grid">
+      ${strategyHtml(single)}
+      ${strategyHtml(split)}
+    </div>
+    ${diff}
+  `;
+}
+
+function renderCartScripts() {
+  const box = $("#cartScriptArea");
+  if (!state.recommendation?.groups?.length) {
+    box.innerHTML = '<p class="subtle">장바구니에 담을 추천 그룹이 없습니다.</p>';
+    return;
+  }
+
+  box.innerHTML = `
+    <div class="group-list">
+      ${state.recommendation.groups.map((group, index) => {
+        const items = aggregateGroupWithProductIds(group);
+        const total = items.reduce((sum, item) => sum + item.subtotalJpy, 0);
+        return `
+          <article class="group-box">
+            <div class="panel-head" style="margin-bottom: 8px;">
+              <div>
+                <h3>주문 ${index + 1}</h3>
+                <p class="subtle">${money(total)} JPY · ${money(items.length)}종</p>
+              </div>
+              <button type="button" data-copy-cart-script="${index}">장바구니 스크립트 복사</button>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>상품번호</th><th>상품명</th><th class="num">수량</th><th class="num">소계</th></tr></thead>
+                <tbody>
+                  ${items.map((item) => `
+                    <tr>
+                      <td>${escapeHtml(item.code)}</td>
+                      <td>${escapeHtml(item.name)}</td>
+                      <td class="num">${money(item.quantity)}</td>
+                      <td class="num">${money(item.subtotalJpy)} JPY</td>
+                    </tr>
+                  `).join("")}
+                </tbody>
+              </table>
+            </div>
+          </article>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function applyQuoteResult(raw) {
+  let result;
+  try {
+    result = JSON.parse(raw);
+  } catch {
+    showStatus("#quoteResultStatus", "bad", "JSON 형식이 올바르지 않습니다.");
+    return;
+  }
+
+  state.quoteResult = result;
+  state.quoteSettings = result.settings || getSettings();
+  state.products = Array.isArray(result.products)
+    ? result.products.map((item, index) => ({
+      ...item,
+      index: Number.isFinite(Number(item.index)) ? Number(item.index) : index,
+      quantity: Math.max(1, Math.round(toNumber(item.quantity))),
+      unitJpy: Math.round(toNumber(item.unitJpy)),
+      totalJpy: Math.round(toNumber(item.totalJpy || item.unitJpy * item.quantity)),
+    }))
+    : [];
+
+  if (result.status !== "measured" || !result.measurement || !state.products.length) {
+    renderQuoteResultPreview();
+    showStatus("#quoteResultStatus", "warn", "견적이 완료되지 않았습니다. 실패 행을 확인해 주세요.");
+    state.comparison = null;
+    updateStepState();
+    return;
+  }
+
+  const settings = {
+    ...state.quoteSettings,
+    limitJpy: state.quoteSettings.limitUsd * state.quoteSettings.usdKrw / state.quoteSettings.jpyKrw,
+  };
+  state.recommendation = cartCore.recommendGroups(state.products, settings);
+  state.comparison = costCore.compareMeasuredOrderStrategies(result.measurement, settings);
+  renderQuoteResultPreview();
+  renderComparison();
+  renderCartScripts();
+  showStatus("#quoteResultStatus", "ok", "견적 결과를 반영했습니다.");
+  setStep(4);
+}
+
+async function handleFileInput(file) {
+  if (!file) return;
+  const text = await file.text();
+  $("#pasteInput").value = text;
+}
+
+$("#csvFile").addEventListener("change", (event) => {
+  handleFileInput(event.target.files?.[0]).catch((error) => {
+    showStatus("#inputStatus", "bad", error.message);
+  });
+});
+
+$("#parseInputButton").addEventListener("click", () => {
+  const result = parseInputRows($("#pasteInput").value);
+  if (result.errors.length) {
+    state.inputRows = result.rows;
+    renderInputPreview();
+    showStatus("#inputStatus", "bad", result.errors[0]);
+    updateStepState();
+    return;
+  }
+  state.inputRows = result.rows;
+  state.quoteScript = buildQuoteScript();
+  $("#copyQuoteScriptButton").disabled = false;
+  $("#showQuoteScriptButton").disabled = false;
+  renderInputPreview();
+  showStatus("#inputStatus", "ok", `${result.rows.length}개 상품을 반영했습니다.`);
+  setStep(2);
+});
+
+$("#clearInputButton").addEventListener("click", () => {
+  $("#csvFile").value = "";
+  $("#pasteInput").value = "";
+  state.inputRows = [];
+  state.quoteScript = "";
+  renderInputPreview();
+  clearStatus("#inputStatus");
+  updateStepState();
+});
+
+$("#copyQuoteScriptButton").addEventListener("click", async () => {
+  state.quoteScript = buildQuoteScript();
+  try {
+    await copyText(state.quoteScript);
+    showStatus("#quoteScriptStatus", "ok", "견적 스크립트를 복사했습니다. Webike 페이지 Console에 붙여넣어 실행하세요.");
+    setStep(3);
+  } catch {
+    showStatus("#quoteScriptStatus", "bad", "복사에 실패했습니다. 스크립트 보기를 눌러 직접 복사해 주세요.");
+  }
+});
+
+$("#showQuoteScriptButton").addEventListener("click", () => {
+  state.quoteScript = buildQuoteScript();
+  const output = $("#quoteScriptOutput");
+  output.classList.toggle("hidden");
+  output.value = state.quoteScript;
+});
+
+$("#applyQuoteResultButton").addEventListener("click", () => {
+  applyQuoteResult($("#quoteResultInput").value);
+});
+
+$("#cartScriptArea").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-copy-cart-script]");
+  if (!button) return;
+  const groupIndex = Number(button.dataset.copyCartScript);
+  const group = state.recommendation?.groups?.[groupIndex];
+  if (!group) return;
+  const script = buildAddCartScript(aggregateGroupWithProductIds(group));
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = "복사 중";
+  try {
+    await copyText(script);
+    button.textContent = "복사됨";
+    window.setTimeout(() => {
+      button.textContent = originalText;
+      button.disabled = false;
+    }, 1600);
+  } catch {
+    button.textContent = "복사 실패";
+    window.setTimeout(() => {
+      button.textContent = originalText;
+      button.disabled = false;
+    }, 1600);
+  }
+});
+
+$$(".step-button").forEach((button) => {
+  button.addEventListener("click", () => setStep(Number(button.dataset.stepTarget)));
+});
+
+["limitUsd", "usdKrw", "jpyKrw", "maxGroups", "splitQuantity", "shippingService", "dutyRate", "vatRate"].forEach((id) => {
+  $(`#${id}`).addEventListener("change", () => {
+    if (state.inputRows.length) state.quoteScript = buildQuoteScript();
+  });
+});
+
+updateStepState();
+</script>
+</body>
+</html>
