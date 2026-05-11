@@ -570,6 +570,17 @@ assert.deepStrictEqual(pastedCsv.rows, [
   { code: "C-003", name: "CSV, Item", quantity: "3", unitJpy: "2,000" },
 ]);
 
+["단가", "금액", "가격", "판매가"].forEach((priceHeader) => {
+  const pastedKoreanPriceAlias = api.manualRowsFromPastedText([
+    `상품번호,수량,상품명,${priceHeader}`,
+    "K-001,2,한글 헤더 상품,6733",
+  ].join("\n"));
+  assert.deepStrictEqual(pastedKoreanPriceAlias.errors, []);
+  assert.deepStrictEqual(pastedKoreanPriceAlias.rows, [
+    { code: "K-001", name: "한글 헤더 상품", quantity: "2", unitJpy: "6733" },
+  ]);
+});
+
 const pastedXlsxProductRows = api.manualRowsFromPastedText([
   "상품번호\t상품명\t수량\t단가 (JPY)\t소계 (JPY)\t소계 (KRW)",
   "34901KY2702\tHONDA OEM Motorcycle parts : Valve , Headlight 34901KY2702\t2\t6,733 JPY\t13,466 JPY\t125,771 KRW",

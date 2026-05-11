@@ -545,11 +545,11 @@
           </div>
           <div>
             <label for="inputHint">권장 컬럼</label>
-            <input id="inputHint" type="text" value="part_number,quantity,name,unit_jpy,product_url" readonly>
+            <input id="inputHint" type="text" value="상품번호,수량,상품명,단가JPY,상품URL" readonly>
           </div>
           <div class="wide">
             <label for="pasteInput">CSV/TSV 붙여넣기</label>
-            <textarea id="pasteInput" spellcheck="false" placeholder="part_number,quantity,name,unit_jpy,product_url&#10;34901KY2702,2,Headlight valve,,"></textarea>
+            <textarea id="pasteInput" spellcheck="false" placeholder="상품번호,수량,상품명,단가JPY,상품URL&#10;34901KY2702,2,헤드라이트 밸브,,"></textarea>
           </div>
         </div>
         <div class="button-row">
@@ -781,7 +781,7 @@ function parseInputRows(text) {
     productUrl: findColumn(headers, ["producturl", "url", "상품url", "상품주소", "링크", "productlink"], -1),
     quantity: findColumn(headers, ["quantity", "qty", "수량", "count"], hasHeader ? -1 : 2),
     name: findColumn(headers, ["name", "productname", "상품명", "제품명"], hasHeader ? -1 : 1),
-    unitJpy: findColumn(headers, ["unitjpy", "unitprice", "price", "단가jpy", "단가", "jpy"], hasHeader ? -1 : 3),
+    unitJpy: findColumn(headers, ["unitjpy", "unitprice", "price", "단가jpy", "단가", "금액", "가격", "판매가", "jpy"], hasHeader ? -1 : 3),
   };
   if (hasHeader && columns.quantity < 0) columns.quantity = -1;
 

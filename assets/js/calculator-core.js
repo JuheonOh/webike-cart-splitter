@@ -1218,7 +1218,7 @@
       productUrl: findColumn(headers, ["상품url", "상품주소", "링크", "url", "producturl", "productlink"]),
       name: findColumn(headers, ["상품명", "제품명", "name", "productname", "itemname"]),
       quantity: findColumn(headers, ["수량", "qty", "quantity", "count"]),
-      unitJpy: findColumn(headers, ["단가jpy", "단가", "price", "unitjpy", "unitprice", "jpy"]),
+      unitJpy: findColumn(headers, ["단가jpy", "단가", "금액", "가격", "판매가", "price", "unitjpy", "unitprice", "jpy"]),
     };
     const matchedCount = Object.values(columns).filter((index) => index >= 0).length;
     return matchedCount >= 2 ? { columns, hasHeader: true } : {
