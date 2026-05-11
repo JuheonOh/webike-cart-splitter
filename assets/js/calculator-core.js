@@ -67,6 +67,15 @@
     ".product-title",
     "[data-product-name]",
   ];
+  const PRODUCT_URL_SELECTORS = [
+    ".product-name a",
+    ".goods-name a",
+    ".item-name a",
+    ".product-title a",
+    "a[href*='/products/']",
+    "[data-product-url]",
+    "[data-url]",
+  ];
   const QUANTITY_SELECTORS = [
     ".product-quantity",
     ".qty-inp",
@@ -248,6 +257,16 @@
       attributeValue(row, ["data-product-name", "title", "aria-label"]);
   }
 
+  function productUrlFromRow(row) {
+    const rowValue = datasetValue(row, ["productUrl", "url", "href"]) ||
+      attributeValue(row, ["data-product-url", "data-url", "href"]);
+    if (rowValue) return rowValue;
+
+    const element = firstElement(row, PRODUCT_URL_SELECTORS);
+    return attributeValue(element, ["href", "data-product-url", "data-url"]) ||
+      cleanText(element?.href);
+  }
+
   function productCodeFromId(id) {
     const value = cleanText(id);
     if (!value) return "";
@@ -312,12 +331,23 @@
     }[char]));
   }
 
+  function unescapeXml(value) {
+    return String(value ?? "")
+      .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCodePoint(parseInt(code, 16)))
+      .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'")
+      .replace(/&gt;/g, ">")
+      .replace(/&lt;/g, "<")
+      .replace(/&amp;/g, "&");
+  }
+
   function escapeHtml(value) {
     return escapeXml(value);
   }
 
-  function xlsxCell(value, style = "", type = "") {
-    return { value, style, type };
+  function xlsxCell(value, style = "", type = "", hyperlink = "") {
+    return { value, style, type, hyperlink };
   }
 
   function pad(number) {
@@ -351,74 +381,92 @@
     };
   }
 
-  function buildSummaryRows(products, recommendation, settings) {
-    const totalKrw = recommendation.totalJpy * settings.jpyKrw;
-    const totalUsd = totalKrw / settings.usdKrw;
-    return [
-      [xlsxCell("항목", "header"), xlsxCell("값", "header")],
-      [xlsxCell("면세 기준(USD)", "label"), xlsxCell(settings.limitUsd, "decimal")],
-      [xlsxCell("USD 수입환율(원)", "label"), xlsxCell(settings.usdKrw, "decimal")],
-      [xlsxCell("JPY 수입환율(원)", "label"), xlsxCell(settings.jpyKrw, "decimal")],
-      [xlsxCell("JPY 한도", "label"), xlsxCell(Math.floor(settings.limitJpy), "integer")],
-      [xlsxCell("전체 상품가 JPY", "label"), xlsxCell(recommendation.totalJpy, "integer")],
-      [xlsxCell("전체 상품가 USD", "label"), xlsxCell(totalUsd, "decimal")],
-      [xlsxCell("전체 상품가 KRW", "label"), xlsxCell(Math.round(totalKrw), "integer")],
-      [xlsxCell("추출 상품 수", "label"), xlsxCell(products.length, "integer")],
-      [xlsxCell("계산 단위 수", "label"), xlsxCell(recommendation.atoms.length, "integer")],
-      [xlsxCell("추천 주문 수", "label"), xlsxCell(recommendation.groups.length, "integer")],
-      [xlsxCell("분할 상태", "label"), xlsxCell(recommendation.groups.length ? "가능" : "확인 필요")],
-    ];
+  function recommendationStatus(recommendation) {
+    if (recommendation.oversize.length) {
+      return {
+        label: "단일 품목 한도 초과",
+        style: "statusBad",
+        reason: "단일 품목 가격이 JPY 한도를 초과했습니다.",
+        action: "수량 분할 또는 주문 조건을 다시 확인하세요.",
+      };
+    }
+    if (!recommendation.groups.length) {
+      return {
+        label: "추천 실패",
+        style: "statusWarn",
+        reason: "지정한 최대 주문 수 안에서 한도 이하 그룹을 찾지 못했습니다.",
+        action: "최대 주문 수를 늘리거나 수량 분할을 켜고 다시 계산하세요.",
+      };
+    }
+    return {
+      label: "분할 가능",
+      style: "statusOk",
+      reason: "모든 추천 주문이 면세 기준 이하입니다.",
+      action: "Webike 최종 금액, 배송비, 쿠폰, 포인트, 품절 상태를 주문 전 확인하세요.",
+    };
+  }
+
+  function groupMarginStatus(marginUsd) {
+    if (marginUsd < 0) {
+      return { label: "한도 초과", style: "statusBad", marginStyle: "marginBad" };
+    }
+    if (marginUsd < 5) {
+      return { label: "한도 근접", style: "statusWarn", marginStyle: "marginWarn" };
+    }
+    return { label: "정상", style: "statusOk", marginStyle: "marginOk" };
   }
 
   function buildGroupRows(products, recommendation, settings) {
     const productHeader = [
-      xlsxCell("주문그룹", "header"),
+      xlsxCell("주문", "header"),
+      xlsxCell("상태", "header"),
       xlsxCell("상품번호", "header"),
       xlsxCell("상품명", "header"),
       xlsxCell("수량", "header"),
-      xlsxCell("단가JPY", "header"),
-      xlsxCell("소계JPY", "header"),
-      xlsxCell("소계KRW", "header"),
+      xlsxCell("단가 (JPY)", "header"),
+      xlsxCell("소계 (JPY)", "header"),
+      xlsxCell("그룹합계 (USD)", "header"),
+      xlsxCell("여유 (USD)", "header"),
+      xlsxCell("실행확인", "header"),
+      xlsxCell("메모", "header"),
     ];
     const rows = [];
 
     if (recommendation.groups.length) {
+      rows.push(productHeader);
       recommendation.groups.forEach((group, index) => {
         const totals = groupTotals(group, settings);
         const groupItems = aggregateGroup(group);
-        const summaryRows = [
-          [xlsxCell("그룹합계JPY", "label"), xlsxCell(totals.totalJpy, "totalInteger")],
-          [xlsxCell("그룹합계USD", "label"), xlsxCell(totals.totalUsd, "totalDecimal")],
-          [xlsxCell("그룹합계KRW", "label"), xlsxCell(Math.round(totals.totalKrw), "totalInteger")],
-          [xlsxCell("여유USD", "label"), xlsxCell(totals.marginUsd, "totalDecimal")],
-          [xlsxCell("여유KRW", "label"), xlsxCell(Math.round(totals.marginKrw), "totalInteger")],
-        ];
-        const bodyRowCount = Math.max(groupItems.length, summaryRows.length);
-
+        const status = groupMarginStatus(totals.marginUsd);
         rows.push([
-          ...productHeader,
-          xlsxCell("", "boxSpacer"),
-          xlsxCell(`주문 ${index + 1} 요약`, "totalText"),
-          xlsxCell("", "totalText"),
+          xlsxCell(index + 1, "sectionInteger"),
+          xlsxCell(status.label, status.style),
+          xlsxCell(`주문 ${index + 1} 요약`, "sectionText"),
+          xlsxCell(`${groupItems.length}개 상품`, "sectionText"),
+          xlsxCell("", "sectionText"),
+          xlsxCell("", "sectionText"),
+          xlsxCell(totals.totalJpy, "sectionJpy"),
+          xlsxCell(totals.totalUsd, "sectionUsd"),
+          xlsxCell(totals.marginUsd, status.marginStyle),
+          xlsxCell("미확인", "checkCell"),
+          xlsxCell("Webike 최종 금액 확인", "noteBox"),
         ]);
-        for (let rowIndex = 0; rowIndex < bodyRowCount; rowIndex += 1) {
-          const item = groupItems[rowIndex];
-          const productCells = item ? [
+
+        groupItems.forEach((item) => {
+          rows.push([
             xlsxCell(index + 1, "boxInteger"),
+            xlsxCell(status.label, status.style),
             xlsxCell(item.code, "boxText"),
             xlsxCell(item.name, "boxText"),
             xlsxCell(item.quantity, "boxInteger"),
-            xlsxCell(item.unitJpy, "boxInteger"),
-            xlsxCell(item.subtotalJpy, "boxInteger"),
-            xlsxCell(Math.round(item.subtotalJpy * settings.jpyKrw), "boxInteger"),
-          ] : Array.from({ length: productHeader.length }, () => xlsxCell("", "boxSpacer"));
-          const summaryCells = summaryRows[rowIndex] || [xlsxCell("", "boxSpacer"), xlsxCell("", "boxSpacer")];
-          rows.push([
-            ...productCells,
+            xlsxCell(item.unitJpy, "jpyInteger"),
+            xlsxCell(item.subtotalJpy, "jpyInteger"),
             xlsxCell("", "boxSpacer"),
-            ...summaryCells,
+            xlsxCell("", "boxSpacer"),
+            xlsxCell("", "checkCell"),
+            xlsxCell("", "checkCell"),
           ]);
-        }
+        });
         if (index < recommendation.groups.length - 1) {
           rows.push([]);
         }
@@ -427,38 +475,74 @@
     }
 
     rows.push(productHeader);
-    products.forEach((item) => {
+    const status = recommendationStatus(recommendation);
+    rows.push([
+      xlsxCell("-", "sectionText"),
+      xlsxCell(status.label, status.style),
+      xlsxCell("추천 결과 없음", "sectionText"),
+      xlsxCell(status.reason, "sectionText"),
+      xlsxCell("", "sectionText"),
+      xlsxCell("", "sectionText"),
+      xlsxCell("", "sectionText"),
+      xlsxCell("", "sectionText"),
+      xlsxCell("", "sectionText"),
+      xlsxCell("미확인", "checkCell"),
+      xlsxCell(status.action, "noteBox"),
+    ]);
+    const fallbackItems = recommendation.oversize.length ? recommendation.oversize : products;
+    fallbackItems.forEach((item) => {
       rows.push([
-        xlsxCell("", "boxSpacer"),
+        xlsxCell("-", "boxText"),
+        xlsxCell(status.label, status.style),
         xlsxCell(item.code, "boxText"),
         xlsxCell(item.name, "boxText"),
         xlsxCell(item.quantity, "boxInteger"),
-        xlsxCell(item.unitJpy, "boxInteger"),
-        xlsxCell(item.totalJpy, "boxInteger"),
-        xlsxCell(Math.round(item.totalJpy * settings.jpyKrw), "boxInteger"),
+        xlsxCell(item.unitJpy, "jpyInteger"),
+        xlsxCell(item.totalJpy, "jpyInteger"),
+        xlsxCell("", "boxSpacer"),
+        xlsxCell("", "boxSpacer"),
+        xlsxCell("", "checkCell"),
+        xlsxCell(status.action, "noteBox"),
       ]);
     });
     return rows;
   }
 
   function buildProductRows(products, settings) {
-    const rows = [[
-      xlsxCell("상품번호", "header"),
-      xlsxCell("상품명", "header"),
-      xlsxCell("수량", "header"),
-      xlsxCell("단가JPY", "header"),
-      xlsxCell("소계JPY", "header"),
-      xlsxCell("소계KRW", "header"),
-    ]];
+    const rows = [
+      [
+        xlsxCell("추출상품", "title"),
+        xlsxCell("추천그룹 산출에 사용된 상품 원본/보정값입니다.", "note"),
+        xlsxCell(""),
+        xlsxCell(""),
+        xlsxCell(""),
+        xlsxCell(""),
+        xlsxCell(""),
+        xlsxCell(""),
+      ],
+      [],
+      [
+        xlsxCell("상품번호", "header"),
+        xlsxCell("상품명", "header"),
+        xlsxCell("수량", "header"),
+        xlsxCell("단가 (JPY)", "header"),
+        xlsxCell("소계 (JPY)", "header"),
+        xlsxCell("소계 (KRW)", "header"),
+        xlsxCell("비고", "header"),
+        xlsxCell("상품URL", "header"),
+      ],
+    ];
 
     products.forEach((item) => {
       rows.push([
-        xlsxCell(item.code),
-        xlsxCell(item.name),
-        xlsxCell(item.quantity, "integer"),
-        xlsxCell(item.unitJpy, "integer"),
-        xlsxCell(item.totalJpy, "integer"),
-        xlsxCell(Math.round(item.totalJpy * settings.jpyKrw), "integer"),
+        xlsxCell(item.code, "boxText"),
+        xlsxCell(item.name, "boxText"),
+        xlsxCell(item.quantity, "boxInteger"),
+        xlsxCell(item.unitJpy, "jpyInteger"),
+        xlsxCell(item.totalJpy, "jpyInteger"),
+        xlsxCell(Math.round(item.totalJpy * settings.jpyKrw), "krwInteger"),
+        xlsxCell("", "checkCell"),
+        xlsxCell(item.productUrl || "", item.productUrl ? "hyperlink" : "boxText", "", item.productUrl || ""),
       ]);
     });
     return rows;
@@ -476,6 +560,25 @@
       boxText: 8,
       boxSpacer: 8,
       boxInteger: 9,
+      title: 10,
+      note: 11,
+      sectionText: 12,
+      sectionInteger: 13,
+      sectionJpy: 14,
+      sectionUsd: 15,
+      jpyInteger: 16,
+      krwInteger: 17,
+      usdDecimal: 18,
+      rateDecimal: 19,
+      statusOk: 20,
+      statusWarn: 21,
+      statusBad: 22,
+      marginOk: 23,
+      marginWarn: 24,
+      marginBad: 25,
+      checkCell: 26,
+      noteBox: 27,
+      hyperlink: 28,
     }[style] || 0;
   }
 
@@ -489,10 +592,108 @@
     return name;
   }
 
-  function worksheetXml(rows, widths) {
+  function formatWidthNumber(value, digits = 0) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return "";
+    const sign = number < 0 ? "-" : "";
+    const [integerPart, decimalPart] = Math.abs(number).toFixed(digits).split(".");
+    const grouped = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return decimalPart ? `${sign}${grouped}.${decimalPart}` : `${sign}${grouped}`;
+  }
+
+  function displayTextForWidth(cell) {
+    if (!cell || cell.value === "" || cell.value === null || cell.value === undefined) return "";
+    const value = cell.value;
+    const number = Number(value);
+    if (Number.isFinite(number) && (cell.type === "number" || typeof value === "number")) {
+      if (["jpyInteger", "sectionJpy"].includes(cell.style)) return `${formatWidthNumber(number)} JPY`;
+      if (cell.style === "krwInteger") return `${formatWidthNumber(number)} KRW`;
+      if (["usdDecimal", "sectionUsd", "marginOk", "marginWarn", "marginBad"].includes(cell.style)) return `${formatWidthNumber(number, 2)} USD`;
+      if (cell.style === "rateDecimal") return formatWidthNumber(number, 4);
+      if (["decimal", "totalDecimal"].includes(cell.style)) return formatWidthNumber(number, 2);
+      return formatWidthNumber(number);
+    }
+    return String(value);
+  }
+
+  function isWideCharacter(char) {
+    const code = char.codePointAt(0);
+    return (
+      (code >= 0x1100 && code <= 0x11ff) ||
+      (code >= 0x2e80 && code <= 0xa4cf) ||
+      (code >= 0xac00 && code <= 0xd7af) ||
+      (code >= 0xf900 && code <= 0xfaff) ||
+      (code >= 0xff01 && code <= 0xff60)
+    );
+  }
+
+  function displayWidth(text) {
+    return [...String(text)].reduce((sum, char) => sum + (isWideCharacter(char) ? 2 : 1), 0);
+  }
+
+  function autoColumnWidths(rows, options = {}) {
+    const columnCount = Math.max(0, ...rows.map((row) => row.length));
+    const minWidths = options.minWidths || [];
+    const maxWidths = options.maxWidths || [];
+    const minWidth = options.minWidth || 8;
+    const maxWidth = options.maxWidth || 90;
+    const padding = options.padding ?? 3;
+    const sourceRows = rows.slice(options.startRow || 0);
+
+    return Array.from({ length: columnCount }, (_, columnIndex) => {
+      let width = minWidths[columnIndex] || minWidth;
+      sourceRows.forEach((row) => {
+        const text = displayTextForWidth(row[columnIndex]);
+        if (!text) return;
+        width = Math.max(width, displayWidth(text) + padding);
+      });
+      return Math.ceil(Math.min(width, maxWidths[columnIndex] || maxWidth));
+    });
+  }
+
+  function worksheetHyperlinks(rows) {
+    const links = [];
+    rows.forEach((row, rowIndex) => {
+      row.forEach((cell, cellIndex) => {
+        const target = cleanText(cell?.hyperlink);
+        if (!target) return;
+        links.push({
+          ref: `${columnName(cellIndex + 1)}${rowIndex + 1}`,
+          target,
+        });
+      });
+    });
+    return links;
+  }
+
+  function worksheetRelsXml(hyperlinks) {
+    const relationships = hyperlinks.map((link, index) => (
+      `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="${escapeXml(link.target)}" TargetMode="External"/>`
+    )).join("");
+
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+  <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  ${relationships}
+  </Relationships>`;
+  }
+
+  function worksheetXml(rows, widths, options = {}) {
+    const hyperlinks = options.hyperlinks || worksheetHyperlinks(rows);
+    const showGridLines = options.showGridLines === false ? ' showGridLines="0"' : "";
+    const tabColor = options.tabColor ? `<tabColor rgb="${options.tabColor}"/>` : "";
+    const sheetPr = tabColor ? `<sheetPr>${tabColor}</sheetPr>` : "";
+    const relationshipNamespace = hyperlinks.length ? ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"' : "";
+    const freezeRow = Number(options.freezeRow || 0);
+    const pane = freezeRow > 0 ? [
+      `<pane ySplit="${freezeRow}" topLeftCell="A${freezeRow + 1}" activePane="bottomLeft" state="frozen"/>`,
+      `<selection pane="bottomLeft" activeCell="A${freezeRow + 1}" sqref="A${freezeRow + 1}"/>`,
+    ].join("") : "";
+    const sheetViews = `<sheetViews><sheetView workbookViewId="0"${showGridLines}>${pane}</sheetView></sheetViews>`;
+    const sheetFormatPr = options.defaultRowHeight ? `<sheetFormatPr defaultRowHeight="${options.defaultRowHeight}"/>` : "";
     const cols = widths.map((width, index) => (
       `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`
     )).join("");
+    const rowHeights = options.rowHeights || {};
     const sheetRows = rows.map((row, rowIndex) => {
       const cells = row.map((cell, cellIndex) => {
         const ref = `${columnName(cellIndex + 1)}${rowIndex + 1}`;
@@ -508,23 +709,35 @@
         const spaceAttr = /^\s|\s$/.test(String(cell.value)) ? ' xml:space="preserve"' : "";
         return `<c r="${ref}" t="inlineStr"${styleAttr}><is><t${spaceAttr}>${text}</t></is></c>`;
       }).join("");
-      return `<row r="${rowIndex + 1}">${cells}</row>`;
+      const rowNumber = rowIndex + 1;
+      const rowHeight = rowHeights[rowNumber];
+      const rowHeightAttr = rowHeight ? ` ht="${rowHeight}" customHeight="1"` : "";
+      return `<row r="${rowNumber}"${rowHeightAttr}>${cells}</row>`;
     }).join("");
+    const autoFilter = options.autoFilterRef ? `<autoFilter ref="${options.autoFilterRef}"/>` : "";
+    const hyperlinkXml = hyperlinks.length ? `<hyperlinks>${hyperlinks.map((link, index) => (
+      `<hyperlink ref="${link.ref}" r:id="rId${index + 1}"/>`
+    )).join("")}</hyperlinks>` : "";
 
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-  <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"${relationshipNamespace}>
+  ${sheetPr}
+  ${sheetViews}
+  ${sheetFormatPr}
   <cols>${cols}</cols>
   <sheetData>${sheetRows}</sheetData>
+  ${autoFilter}
+  ${hyperlinkXml}
   </worksheet>`;
   }
 
   function workbookXml() {
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
   <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <bookViews><workbookView activeTab="0"/></bookViews>
   <sheets>
-    <sheet name="요약" sheetId="1" r:id="rId1"/>
-    <sheet name="추천그룹" sheetId="2" r:id="rId2"/>
-    <sheet name="추출상품" sheetId="3" r:id="rId3"/>
+    <sheet name="추천그룹" sheetId="1" r:id="rId1"/>
+    <sheet name="추출상품" sheetId="2" r:id="rId2"/>
   </sheets>
   </workbook>`;
   }
@@ -534,8 +747,7 @@
   <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
   <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>
-  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet3.xml"/>
-  <Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
   </Relationships>`;
   }
 
@@ -555,50 +767,83 @@
   <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
   <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
   <Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
-  <Override PartName="/xl/worksheets/sheet3.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
   </Types>`;
   }
 
   function stylesXml() {
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
   <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-  <numFmts count="2">
+  <numFmts count="6">
     <numFmt numFmtId="164" formatCode="#,##0"/>
     <numFmt numFmtId="165" formatCode="#,##0.00"/>
+    <numFmt numFmtId="166" formatCode="#,##0&quot; JPY&quot;"/>
+    <numFmt numFmtId="167" formatCode="#,##0&quot; KRW&quot;"/>
+    <numFmt numFmtId="168" formatCode="#,##0.00&quot; USD&quot;"/>
+    <numFmt numFmtId="169" formatCode="#,##0.0000"/>
   </numFmts>
-  <fonts count="3">
-    <font><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/></font>
-    <font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/><family val="2"/></font>
-    <font><b/><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/></font>
+  <fonts count="9">
+    <font><sz val="16"/><color theme="1"/><name val="Calibri"/><family val="2"/></font>
+    <font><b/><sz val="16"/><color rgb="FFFFFFFF"/><name val="Calibri"/><family val="2"/></font>
+    <font><b/><sz val="16"/><color theme="1"/><name val="Calibri"/><family val="2"/></font>
+    <font><b/><sz val="22"/><color rgb="FFFFFFFF"/><name val="Calibri"/><family val="2"/></font>
+    <font><sz val="16"/><color rgb="FF4F5B67"/><name val="Calibri"/><family val="2"/></font>
+    <font><b/><sz val="16"/><color rgb="FF137333"/><name val="Calibri"/><family val="2"/></font>
+    <font><b/><sz val="16"/><color rgb="FF8A5A00"/><name val="Calibri"/><family val="2"/></font>
+    <font><b/><sz val="16"/><color rgb="FFC5221F"/><name val="Calibri"/><family val="2"/></font>
+    <font><u/><sz val="16"/><color rgb="FF0563C1"/><name val="Calibri"/><family val="2"/></font>
   </fonts>
-  <fills count="4">
+  <fills count="9">
     <fill><patternFill patternType="none"/></fill>
     <fill><patternFill patternType="gray125"/></fill>
     <fill><patternFill patternType="solid"><fgColor rgb="FF1264A3"/><bgColor indexed="64"/></patternFill></fill>
     <fill><patternFill patternType="solid"><fgColor rgb="FFE7F0FA"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFDCEAF7"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFE6F4EA"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFFFF4CC"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFFCE8E6"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FF0F3E5C"/><bgColor indexed="64"/></patternFill></fill>
   </fills>
   <borders count="2">
     <border><left/><right/><top/><bottom/><diagonal/></border>
     <border>
-      <left style="thin"><color rgb="FFD9E0E8"/></left>
-      <right style="thin"><color rgb="FFD9E0E8"/></right>
-      <top style="thin"><color rgb="FFD9E0E8"/></top>
-      <bottom style="thin"><color rgb="FFD9E0E8"/></bottom>
+      <left style="thin"><color rgb="FFB7C4D1"/></left>
+      <right style="thin"><color rgb="FFB7C4D1"/></right>
+      <top style="thin"><color rgb="FFB7C4D1"/></top>
+      <bottom style="thin"><color rgb="FFB7C4D1"/></bottom>
       <diagonal/>
     </border>
   </borders>
   <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-  <cellXfs count="10">
+  <cellXfs count="29">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
-    <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center"/></xf>
+    <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
     <xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="right"/></xf>
     <xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="right"/></xf>
-    <xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/>
-    <xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/>
-    <xf numFmtId="164" fontId="2" fillId="3" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right"/></xf>
-    <xf numFmtId="165" fontId="2" fillId="3" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right"/></xf>
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"/>
-    <xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="164" fontId="2" fillId="3" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
+    <xf numFmtId="165" fontId="2" fillId="3" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>
+    <xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="top"/></xf>
+    <xf numFmtId="0" fontId="3" fillId="8" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="4" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="164" fontId="2" fillId="4" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
+    <xf numFmtId="166" fontId="2" fillId="4" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
+    <xf numFmtId="168" fontId="2" fillId="4" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
+    <xf numFmtId="166" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="top"/></xf>
+    <xf numFmtId="167" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="top"/></xf>
+    <xf numFmtId="168" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="top"/></xf>
+    <xf numFmtId="169" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="top"/></xf>
+    <xf numFmtId="0" fontId="5" fillId="5" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="6" fillId="6" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="7" fillId="7" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="168" fontId="5" fillId="5" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
+    <xf numFmtId="168" fontId="6" fillId="6" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
+    <xf numFmtId="168" fontId="7" fillId="7" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="4" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="top" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="4" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="8" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>
   </cellXfs>
   <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
   </styleSheet>`;
@@ -641,6 +886,10 @@
 
   function bytesFromText(text) {
     return new TextEncoder().encode(text);
+  }
+
+  function textFromBytes(bytes) {
+    return new TextDecoder().decode(bytes);
   }
 
   function combineBytes(parts) {
@@ -716,7 +965,33 @@
     return combineBytes([...localParts, centralDirectory, new Uint8Array(endRecord)]);
   }
 
+  function rowWithOptionalProductUrl(row, columns) {
+    const productUrl = columns.productUrl >= 0 ? row[columns.productUrl] || "" : "";
+    const productRow = {
+      code: row[columns.code] || "",
+      name: row[columns.name] || "",
+      quantity: row[columns.quantity] || "",
+      unitJpy: row[columns.unitJpy] || "",
+    };
+    if (productUrl) productRow.productUrl = productUrl;
+    return productRow;
+  }
+
   function buildXlsxBytes(products, recommendation, settings) {
+    const groupRows = buildGroupRows(products, recommendation, settings);
+    const productRows = buildProductRows(products, settings);
+    const productHyperlinks = worksheetHyperlinks(productRows);
+    const groupWidths = autoColumnWidths(groupRows, {
+      minWidths: [8, 10, 14, 20, 8, 12, 12, 14, 12, 10, 18],
+      maxWidths: [18, 24, 42, 90, 14, 26, 26, 30, 26, 20, 70],
+      padding: 3,
+    });
+    const productWidths = autoColumnWidths(productRows, {
+      startRow: 2,
+      minWidths: [14, 20, 8, 12, 12, 12, 16, 20],
+      maxWidths: [42, 90, 14, 26, 26, 28, 70, 80],
+      padding: 3,
+    });
     const files = [
       { name: "[Content_Types].xml", content: contentTypesXml() },
       { name: "_rels/.rels", content: rootRelsXml() },
@@ -725,18 +1000,75 @@
       { name: "xl/styles.xml", content: stylesXml() },
       {
         name: "xl/worksheets/sheet1.xml",
-        content: worksheetXml(buildSummaryRows(products, recommendation, settings), [24, 18]),
+        content: worksheetXml(groupRows, groupWidths, {
+          freezeRow: 1,
+          autoFilterRef: `A1:K${Math.max(groupRows.length, 1)}`,
+          defaultRowHeight: 26,
+          rowHeights: { 1: 36 },
+          showGridLines: false,
+          tabColor: "FF0F3E5C",
+        }),
       },
       {
         name: "xl/worksheets/sheet2.xml",
-        content: worksheetXml(buildGroupRows(products, recommendation, settings), [12, 20, 42, 10, 12, 12, 14, 4, 16, 16]),
+        content: worksheetXml(productRows, productWidths, {
+          freezeRow: 3,
+          autoFilterRef: `A3:H${Math.max(productRows.length, 3)}`,
+          defaultRowHeight: 26,
+          rowHeights: { 1: 40, 3: 36 },
+          showGridLines: false,
+          tabColor: "FF6A7D13",
+          hyperlinks: productHyperlinks,
+        }),
       },
-      {
-        name: "xl/worksheets/sheet3.xml",
-        content: worksheetXml(buildProductRows(products, settings), [20, 48, 10, 12, 12, 14]),
-      },
+      ...(productHyperlinks.length ? [{
+        name: "xl/worksheets/_rels/sheet2.xml.rels",
+        content: worksheetRelsXml(productHyperlinks),
+      }] : []),
     ];
     return createZip(files);
+  }
+
+  function csvCell(value) {
+    const text = String(value ?? "");
+    return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  }
+
+  function groupCsvContent(group) {
+    const rows = [
+      ["part_number", "quantity", "name", "unit_jpy", "product_url"],
+      ...aggregateGroup(group).map((item) => [
+        item.productUrl && item.code === item.productUrl ? "" : item.code,
+        item.quantity,
+        item.name,
+        item.unitJpy,
+        item.productUrl || "",
+      ]),
+    ];
+    return rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
+  }
+
+  function buildGroupCsvZipBytes(recommendation) {
+    if (!recommendation.groups.length) return createZip([]);
+    const files = recommendation.groups.map((group, index) => ({
+      name: `webike_order_group_${String(index + 1).padStart(2, "0")}.csv`,
+      content: groupCsvContent(group),
+    }));
+    return createZip(files);
+  }
+
+  function makeGroupCsvZipFileName() {
+    const now = new Date();
+    return [
+      "webike_order_groups_",
+      now.getFullYear(),
+      pad(now.getMonth() + 1),
+      pad(now.getDate()),
+      "_",
+      pad(now.getHours()),
+      pad(now.getMinutes()),
+      ".zip",
+    ].join("");
   }
 
   function parseProducts(html) {
@@ -770,10 +1102,11 @@
       productCodeFromId(row?.id) ||
       `item-${index + 1}`;
     const name = productNameFromRow(row) || code;
+    const productUrl = productUrlFromRow(row);
 
     if (quantity < 1 || resolvedUnitJpy <= 0) return null;
 
-    return {
+    const product = {
       index,
       sku: datasetValue(row, ["sku", "productCode", "productId"]) || productCodeFromId(row?.id) || code,
       code,
@@ -782,6 +1115,8 @@
       unitJpy: resolvedUnitJpy,
       totalJpy: totalJpy || resolvedUnitJpy * quantity,
     };
+    if (productUrl) product.productUrl = productUrl;
+    return product;
   }
 
   function normalizeManualProducts(rows) {
@@ -789,11 +1124,12 @@
     const errors = [];
 
     rows.forEach((row, rowIndex) => {
-      const code = cleanText(row.code);
+      const productUrl = cleanText(row.productUrl);
+      const code = cleanText(row.code) || productUrl;
       const name = cleanText(row.name);
       const quantity = Math.round(toNumber(row.quantity));
-      const unitJpy = Math.round(toNumber(row.unitJpy));
-      const hasAnyValue = code || name || String(row.quantity || "").trim() || String(row.unitJpy || "").trim();
+      const unitJpy = parseJpy(row.unitJpy);
+      const hasAnyValue = code || productUrl || name || String(row.quantity || "").trim() || String(row.unitJpy || "").trim();
 
       if (!hasAnyValue) return;
 
@@ -802,7 +1138,7 @@
       if (unitJpy <= 0) errors.push(`${rowIndex + 1}행 단가 JPY는 1 이상이어야 합니다.`);
       if (!code || quantity < 1 || unitJpy <= 0) return;
 
-      products.push({
+      const product = {
         index: products.length,
         sku: code,
         code,
@@ -810,19 +1146,25 @@
         quantity,
         unitJpy,
         totalJpy: quantity * unitJpy,
-      });
+      };
+      if (productUrl) product.productUrl = productUrl;
+      products.push(product);
     });
 
     return { products, errors };
   }
 
   function manualRowsFromProducts(products) {
-    return products.map((item) => ({
-      code: item.code,
-      name: item.name,
-      quantity: item.quantity,
-      unitJpy: item.unitJpy,
-    }));
+    return products.map((item) => {
+      const row = {
+        code: item.code,
+        name: item.name,
+        quantity: item.quantity,
+        unitJpy: item.unitJpy,
+      };
+      if (item.productUrl) row.productUrl = item.productUrl;
+      return row;
+    });
   }
 
   function parseDelimitedLine(line, delimiter) {
@@ -873,13 +1215,14 @@
     const headers = row.map(normalizeHeader);
     const columns = {
       code: findColumn(headers, ["상품번호", "품번", "sku", "code", "productcode", "partnumber", "partno"]),
+      productUrl: findColumn(headers, ["상품url", "상품주소", "링크", "url", "producturl", "productlink"]),
       name: findColumn(headers, ["상품명", "제품명", "name", "productname", "itemname"]),
       quantity: findColumn(headers, ["수량", "qty", "quantity", "count"]),
       unitJpy: findColumn(headers, ["단가jpy", "단가", "price", "unitjpy", "unitprice", "jpy"]),
     };
     const matchedCount = Object.values(columns).filter((index) => index >= 0).length;
     return matchedCount >= 2 ? { columns, hasHeader: true } : {
-      columns: { code: 0, name: 1, quantity: 2, unitJpy: 3 },
+      columns: { code: 0, productUrl: -1, name: 1, quantity: 2, unitJpy: 3 },
       hasHeader: false,
     };
   }
@@ -890,12 +1233,8 @@
 
     const { columns, hasHeader } = detectPasteColumns(parsedRows[0]);
     const dataRows = parsedRows.slice(hasHeader ? 1 : 0);
-    const rows = dataRows.map((row) => ({
-      code: row[columns.code] || "",
-      name: row[columns.name] || "",
-      quantity: row[columns.quantity] || "",
-      unitJpy: row[columns.unitJpy] || "",
-    })).filter((row) => row.code || row.name || row.quantity || row.unitJpy);
+    const rows = dataRows.map((row) => rowWithOptionalProductUrl(row, columns))
+      .filter((row) => row.code || row.productUrl || row.name || row.quantity || row.unitJpy);
 
     if (!rows.length) return { rows: [], errors: ["붙여넣은 상품 행을 찾지 못했습니다."] };
 
@@ -903,13 +1242,13 @@
     return { rows, errors: normalized.errors };
   }
 
-
   return {
     DEFAULT_SETTINGS,
     EXCHANGE_RATE_SOURCE_URL,
     CART_ROW_SELECTORS,
     PRODUCT_CODE_SELECTORS,
     PRODUCT_NAME_SELECTORS,
+    PRODUCT_URL_SELECTORS,
     QUANTITY_SELECTORS,
     UNIT_PRICE_SELECTORS,
     TOTAL_PRICE_SELECTORS,
@@ -930,6 +1269,7 @@
     textFrom,
     productCodeFromRow,
     productNameFromRow,
+    productUrlFromRow,
     productCodeFromId,
     priceFromRow,
     quantityFromRow,
@@ -938,11 +1278,12 @@
     escapeHtml,
     makeXlsxFileName,
     groupTotals,
-    buildSummaryRows,
     buildGroupRows,
     buildProductRows,
     createZip,
     buildXlsxBytes,
+    buildGroupCsvZipBytes,
+    makeGroupCsvZipFileName,
     parseProducts,
     cartProductFromRow,
     normalizeManualProducts,

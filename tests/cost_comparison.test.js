@@ -44,6 +44,36 @@ function makeSettings(overrides = {}) {
   return settings;
 }
 
+function readUint16(bytes, offset) {
+  return bytes[offset] | (bytes[offset + 1] << 8);
+}
+
+function readUint32(bytes, offset) {
+  return bytes[offset] |
+    (bytes[offset + 1] << 8) |
+    (bytes[offset + 2] << 16) |
+    (bytes[offset + 3] << 24);
+}
+
+function unzipStoredEntries(bytes) {
+  const decoder = new TextDecoder();
+  const entries = {};
+  let offset = 0;
+
+  while (offset < bytes.length && readUint32(bytes, offset) === 0x04034b50) {
+    const compressedSize = readUint32(bytes, offset + 18);
+    const fileNameLength = readUint16(bytes, offset + 26);
+    const extraLength = readUint16(bytes, offset + 28);
+    const nameStart = offset + 30;
+    const dataStart = nameStart + fileNameLength + extraLength;
+    const name = decoder.decode(bytes.slice(nameStart, nameStart + fileNameLength));
+    entries[name] = decoder.decode(bytes.slice(dataStart, dataStart + compressedSize));
+    offset = dataStart + compressedSize;
+  }
+
+  return entries;
+}
+
 const products = [
   makeProduct(0, "A-001", 1, 15000),
   makeProduct(1, "B-002", 1, 15000),
@@ -222,6 +252,32 @@ assert.deepStrictEqual(productUrlRows, [
   },
 ]);
 fs.unlinkSync(productUrlInputPath);
+
+const groupCsvRecommendation = cartCore.recommendGroups([
+  {
+    index: 0,
+    code: "CSV-URL-001",
+    productUrl: "https://www.japan-webike.kr/products/25427339.html",
+    name: "CSV URL Item",
+    quantity: 2,
+    unitJpy: 1500,
+    totalJpy: 3000,
+  },
+], makeSettings());
+const groupCsvEntries = unzipStoredEntries(cartCore.buildGroupCsvZipBytes(groupCsvRecommendation));
+assert(groupCsvEntries["webike_order_group_01.csv"].startsWith("part_number,quantity,name,unit_jpy,product_url\r\n"));
+const groupCsvPath = path.join(os.tmpdir(), `webike-group-csv-${Date.now()}.csv`);
+fs.writeFileSync(groupCsvPath, groupCsvEntries["webike_order_group_01.csv"]);
+assert.deepStrictEqual(quoteCli.readInputRows(groupCsvPath), [
+  {
+    partNumber: "CSV-URL-001",
+    quantity: 2,
+    name: "CSV URL Item",
+    unitJpy: 1500,
+    productUrl: "https://www.japan-webike.kr/products/25427339.html",
+  },
+]);
+fs.unlinkSync(groupCsvPath);
 
 const productDetail = quoteCli.parseProductDetail(
   productDetailFixture,
