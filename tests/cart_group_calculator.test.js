@@ -9,9 +9,12 @@ const uiRuntimeScript = uiScript.replace(/\s*applyStoredSettingsToForm\(\);[\s\S
 const uiApi = new Function("window", "document", `${uiRuntimeScript}
 return {
   buildWebikeCartScript,
-  renderCartScriptPanel,
+  groupFingerprint,
   renderGroups,
   renderProducts,
+  readStoredDraft,
+  removeStoredDraft,
+  writeStoredDraft,
 };
 `)({ WebikeCartCore: api }, { querySelector: () => null });
 
@@ -73,11 +76,63 @@ function makeMemoryStorage(initialValue = "") {
     setItem(key, value) {
       values.set(key, value);
     },
+    removeItem(key) {
+      values.delete(key);
+    },
   };
 }
 
 function readFixture(name) {
   return fs.readFileSync(path.join(__dirname, "fixtures", "webike-cart", name), "utf8");
+}
+
+function readUint16(bytes, offset) {
+  return bytes[offset] | (bytes[offset + 1] << 8);
+}
+
+function readUint32(bytes, offset) {
+  return bytes[offset] |
+    (bytes[offset + 1] << 8) |
+    (bytes[offset + 2] << 16) |
+    (bytes[offset + 3] << 24);
+}
+
+function unzipStoredEntries(bytes) {
+  const decoder = new TextDecoder();
+  const entries = {};
+  let offset = 0;
+
+  while (offset < bytes.length && readUint32(bytes, offset) === 0x04034b50) {
+    const method = readUint16(bytes, offset + 8);
+    const compressedSize = readUint32(bytes, offset + 18);
+    const fileNameLength = readUint16(bytes, offset + 26);
+    const extraLength = readUint16(bytes, offset + 28);
+    const nameStart = offset + 30;
+    const dataStart = nameStart + fileNameLength + extraLength;
+    const name = decoder.decode(bytes.slice(nameStart, nameStart + fileNameLength));
+
+    assert.strictEqual(method, 0, `${name} must use stored ZIP method in tests`);
+    entries[name] = decoder.decode(bytes.slice(dataStart, dataStart + compressedSize));
+    offset = dataStart + compressedSize;
+  }
+
+  return entries;
+}
+
+function assertCellXfsCount(stylesXml) {
+  const match = stylesXml.match(/<cellXfs count="(\d+)">([\s\S]*?)<\/cellXfs>/);
+  assert(match, "styles.xml must include cellXfs");
+  const declaredCount = Number(match[1]);
+  const actualCount = (match[2].match(/<xf /g) || []).length;
+  assert.strictEqual(actualCount, declaredCount, "cellXfs count must match xf entries");
+}
+
+function sheetColumnWidths(sheetXml) {
+  const widths = [];
+  for (const match of sheetXml.matchAll(/<col min="(\d+)" max="\d+" width="([^"]+)"/g)) {
+    widths[Number(match[1]) - 1] = Number(match[2]);
+  }
+  return widths;
 }
 
 function camelCaseDataName(name) {
@@ -195,6 +250,78 @@ assert(xlsxBytes instanceof Uint8Array, "xlsx output must be bytes");
 assert(xlsxBytes.length > 1000, "xlsx output is unexpectedly small");
 assert.deepStrictEqual([...xlsxBytes.slice(0, 4)], [0x50, 0x4b, 0x03, 0x04]);
 
+const xlsxEntries = unzipStoredEntries(xlsxBytes);
+assert(xlsxEntries["xl/workbook.xml"].includes('<sheet name="추천그룹"'));
+assert(xlsxEntries["xl/workbook.xml"].includes('<sheet name="추출상품"'));
+assert(!xlsxEntries["xl/workbook.xml"].includes('<sheet name="요약"'));
+assert(!xlsxEntries["xl/worksheets/sheet3.xml"], "xlsx output should only include group and product worksheets");
+assertCellXfsCount(xlsxEntries["xl/styles.xml"]);
+assert(xlsxEntries["xl/styles.xml"].includes('wrapText="1"'));
+assert(xlsxEntries["xl/styles.xml"].includes('formatCode="#,##0&quot; JPY&quot;"'));
+assert(xlsxEntries["xl/styles.xml"].includes('formatCode="#,##0.00&quot; USD&quot;"'));
+assert(xlsxEntries["xl/styles.xml"].includes('<font><u/><sz val="16"/><color rgb="FF0563C1"'));
+assert(xlsxEntries["xl/worksheets/sheet1.xml"].includes('<pane ySplit="1" topLeftCell="A2"'));
+assert(xlsxEntries["xl/worksheets/sheet1.xml"].includes('<autoFilter ref="A1:K'));
+assert(xlsxEntries["xl/worksheets/sheet1.xml"].includes("주문 1 요약"));
+assert(xlsxEntries["xl/worksheets/sheet1.xml"].includes("실행확인"));
+assert(xlsxEntries["xl/worksheets/sheet1.xml"].includes("Webike 최종 금액 확인"));
+assert(xlsxEntries["xl/worksheets/sheet2.xml"].includes('<pane ySplit="3" topLeftCell="A4"'));
+assert(xlsxEntries["xl/worksheets/sheet2.xml"].includes('<autoFilter ref="A3:H'));
+assert(xlsxEntries["xl/worksheets/sheet2.xml"].includes("추천그룹 산출에 사용된 상품 원본/보정값입니다."));
+assert(
+  xlsxEntries["xl/worksheets/sheet2.xml"].indexOf("비고") <
+    xlsxEntries["xl/worksheets/sheet2.xml"].indexOf("상품URL"),
+  "product URL column should be the last product-sheet column",
+);
+const groupColumnWidths = sheetColumnWidths(xlsxEntries["xl/worksheets/sheet1.xml"]);
+const productColumnWidths = sheetColumnWidths(xlsxEntries["xl/worksheets/sheet2.xml"]);
+assert(groupColumnWidths[3] < 64, "group product name width should be data-driven, not the old fixed width");
+assert(productColumnWidths[1] < 72, "product name width should ignore the title note and use product data");
+
+const longNameProducts = [
+  makeProduct(0, "LONG-001", "HONDA OEM Extra Long Replacement Product Name For Auto Width Verification", 1, 1000),
+];
+const longNameSettings = makeSettings();
+const longNameRecommendation = api.recommendGroups(longNameProducts, longNameSettings);
+const longNameXlsx = api.buildXlsxBytes(longNameProducts, longNameRecommendation, longNameSettings);
+const longNameProductWidths = sheetColumnWidths(unzipStoredEntries(longNameXlsx)["xl/worksheets/sheet2.xml"]);
+assert(longNameProductWidths[1] > productColumnWidths[1], "product name width should grow with longer data");
+
+const noGroupProducts = [
+  makeProduct(0, "LIMIT-001", "Limit Test Item A", 1, 10000),
+  makeProduct(1, "LIMIT-002", "Limit Test Item B", 1, 10000),
+  makeProduct(2, "LIMIT-003", "Limit Test Item C", 1, 10000),
+];
+const noGroupSettings = makeSettings({ limitUsd: 95, maxGroups: 2, splitQuantity: false });
+const noGroupRecommendation = api.recommendGroups(noGroupProducts, noGroupSettings);
+const noGroupXlsxBytes = api.buildXlsxBytes(noGroupProducts, noGroupRecommendation, noGroupSettings);
+const noGroupSheet = unzipStoredEntries(noGroupXlsxBytes)["xl/worksheets/sheet1.xml"];
+assert(noGroupSheet.includes("추천 실패"));
+assert(noGroupSheet.includes("최대 주문 수를 늘리거나 수량 분할을 켜고 다시 계산하세요."));
+
+const csvZipProducts = [
+  {
+    ...makeProduct(0, "CSV-001", 'CSV Test "Quoted", Item', 2, 1500),
+    productUrl: "https://www.japan-webike.kr/products/25427339.html",
+  },
+];
+const csvZipRecommendation = api.recommendGroups(csvZipProducts, makeSettings());
+const productUrlXlsxEntries = unzipStoredEntries(api.buildXlsxBytes(csvZipProducts, csvZipRecommendation, makeSettings()));
+assert(productUrlXlsxEntries["xl/worksheets/sheet2.xml"].includes('xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'));
+assert(productUrlXlsxEntries["xl/worksheets/sheet2.xml"].includes('<hyperlinks><hyperlink ref="H4" r:id="rId1"/></hyperlinks>'));
+assert(productUrlXlsxEntries["xl/worksheets/sheet2.xml"].includes('<c r="H4" t="inlineStr" s="28">'));
+assert(productUrlXlsxEntries["xl/worksheets/_rels/sheet2.xml.rels"].includes('Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"'));
+assert(productUrlXlsxEntries["xl/worksheets/_rels/sheet2.xml.rels"].includes('Target="https://www.japan-webike.kr/products/25427339.html"'));
+assert(productUrlXlsxEntries["xl/worksheets/_rels/sheet2.xml.rels"].includes('TargetMode="External"'));
+const csvZipEntries = unzipStoredEntries(api.buildGroupCsvZipBytes(csvZipRecommendation));
+assert.deepStrictEqual(Object.keys(csvZipEntries), ["webike_order_group_01.csv"]);
+assert.strictEqual(
+  csvZipEntries["webike_order_group_01.csv"],
+  'part_number,quantity,name,unit_jpy,product_url\r\nCSV-001,2,"CSV Test ""Quoted"", Item",1500,https://www.japan-webike.kr/products/25427339.html',
+);
+assert.deepStrictEqual(unzipStoredEntries(api.buildGroupCsvZipBytes(noGroupRecommendation)), {});
+assert(/^webike_order_groups_\d{8}_\d{4}\.zip$/.test(api.makeGroupCsvZipFileName()));
+
 assert.strictEqual(api.parseJpy("JPY 1,250"), 1250);
 assert.strictEqual(api.parseJpy("1,250円"), 1250);
 assert.strictEqual(api.parseJpy("￥1,250"), 1250);
@@ -300,15 +427,42 @@ const productHtml = uiApi.renderProducts(unsafeProducts);
 assert(!productHtml.includes("<script>"), "product name must not render as raw HTML");
 assert(productHtml.includes("&lt;script&gt;alert(1)&lt;/script&gt;"));
 assert(productHtml.includes('data-action="apply-product-edits"'));
+assert(productHtml.includes('id="productEditDirtyNotice"'));
 assert(productHtml.includes('class="result-product-quantity result-product-edit"'));
 assert(productHtml.includes('class="result-product-unit-jpy result-product-edit"'));
 assert(productHtml.includes('value="1"'));
 assert(productHtml.includes('value="100"'));
 
-const cartScriptPanelHtml = uiApi.renderCartScriptPanel();
-assert(cartScriptPanelHtml.includes('data-action="generate-webike-cart-script"'));
-assert(cartScriptPanelHtml.includes('data-action="copy-webike-cart-script"'));
-assert(cartScriptPanelHtml.includes('id="webikeCartScriptOutput"'));
+const groupHtml = uiApi.renderGroups(recommendation, settings);
+assert(groupHtml.includes('data-action="copy-group-cart-script"'));
+assert(groupHtml.includes('data-group-index="0"'));
+assert(groupHtml.includes('id="groupScriptStatus0"'));
+assert(groupHtml.includes('class="group-checks"'));
+assert(groupHtml.includes("group-script-copied"));
+assert(groupHtml.includes('data-progress-field="finalAmountChecked"'));
+assert(groupHtml.includes('data-progress-field="ordered"'));
+assert(!groupHtml.includes('data-action="generate-webike-cart-script"'));
+
+const progressKey = uiApi.groupFingerprint(recommendation.groups[0]);
+const progressedGroupHtml = uiApi.renderGroups(recommendation, settings, {
+  [progressKey]: {
+    scriptCopied: true,
+    finalAmountChecked: true,
+    ordered: false,
+  },
+});
+assert(progressedGroupHtml.includes(`data-group-key="${progressKey}"`));
+assert(progressedGroupHtml.includes('data-progress-field="scriptCopied" checked'));
+assert(progressedGroupHtml.includes('data-progress-field="finalAmountChecked" checked'));
+
+const firstGroupProducts = api.aggregateGroup(recommendation.groups[0]);
+const secondGroupProducts = api.aggregateGroup(recommendation.groups[1]);
+const firstGroupCodes = new Set(firstGroupProducts.map((item) => item.code));
+const secondGroupOnlyProduct = secondGroupProducts.find((item) => !firstGroupCodes.has(item.code));
+const firstGroupScript = uiApi.buildWebikeCartScript(firstGroupProducts);
+assert(firstGroupScript.includes(`"partNumber": "${firstGroupProducts[0].code}"`));
+assert(secondGroupOnlyProduct, "fixture should have at least one product unique to the second group");
+assert(!firstGroupScript.includes(`"partNumber": "${secondGroupOnlyProduct.code}"`));
 
 const webikeCartScript = uiApi.buildWebikeCartScript(sampleProducts.slice(0, 2));
 assert(webikeCartScript.includes("www.japan-webike.kr"));
@@ -319,6 +473,35 @@ assert(webikeCartScript.includes('"quantity": 4'));
 assert(webikeCartScript.includes("products_id: item.productsId"));
 assert(webikeCartScript.includes('location.href = "/shopping_cart.html";'));
 assert.doesNotThrow(() => new Function(webikeCartScript));
+
+const productUrlCartScript = uiApi.buildWebikeCartScript([{
+  code: "",
+  productUrl: "https://www.japan-webike.kr/products/25427339.html",
+  name: "URL only item",
+  quantity: 1,
+  unitJpy: 1000,
+}]);
+assert(productUrlCartScript.includes('"productUrl": "https://www.japan-webike.kr/products/25427339.html"'));
+assert.doesNotThrow(() => new Function(productUrlCartScript));
+
+const normalizedProductUrlOnly = api.normalizeManualProducts([{
+  code: "",
+  productUrl: "https://www.japan-webike.kr/products/25427339.html",
+  name: "URL normalized item",
+  quantity: "1",
+  unitJpy: "1000",
+}]);
+assert.deepStrictEqual(normalizedProductUrlOnly.errors, []);
+const normalizedProductUrlScript = uiApi.buildWebikeCartScript(normalizedProductUrlOnly.products);
+assert(normalizedProductUrlScript.includes('"partNumber": ""'));
+assert(normalizedProductUrlScript.includes('"productUrl": "https://www.japan-webike.kr/products/25427339.html"'));
+assert.doesNotThrow(() => new Function(normalizedProductUrlScript));
+const productUrlOnlyRecommendation = api.recommendGroups(normalizedProductUrlOnly.products, makeSettings());
+const productUrlOnlyCsv = unzipStoredEntries(api.buildGroupCsvZipBytes(productUrlOnlyRecommendation));
+assert.strictEqual(
+  productUrlOnlyCsv["webike_order_group_01.csv"],
+  "part_number,quantity,name,unit_jpy,product_url\r\n,1,URL normalized item,1000,https://www.japan-webike.kr/products/25427339.html",
+);
 
 const unsafeCartScript = uiApi.buildWebikeCartScript(unsafeProducts);
 assert(!unsafeCartScript.includes("<script>"), "generated script must escape HTML-like product data");
@@ -387,6 +570,46 @@ assert.deepStrictEqual(pastedCsv.rows, [
   { code: "C-003", name: "CSV, Item", quantity: "3", unitJpy: "2,000" },
 ]);
 
+const pastedXlsxProductRows = api.manualRowsFromPastedText([
+  "상품번호\t상품명\t수량\t단가 (JPY)\t소계 (JPY)\t소계 (KRW)",
+  "34901KY2702\tHONDA OEM Motorcycle parts : Valve , Headlight 34901KY2702\t2\t6,733 JPY\t13,466 JPY\t125,771 KRW",
+  "16016MAS670\tHONDA OEM Motorcycle parts : Screw Set\t4\t2,670 JPY\t10,680 JPY\t99,750 KRW",
+].join("\n"));
+assert.deepStrictEqual(pastedXlsxProductRows.errors, []);
+assert.deepStrictEqual(pastedXlsxProductRows.rows, [
+  {
+    code: "34901KY2702",
+    name: "HONDA OEM Motorcycle parts : Valve , Headlight 34901KY2702",
+    quantity: "2",
+    unitJpy: "6,733 JPY",
+  },
+  {
+    code: "16016MAS670",
+    name: "HONDA OEM Motorcycle parts : Screw Set",
+    quantity: "4",
+    unitJpy: "2,670 JPY",
+  },
+]);
+assert.deepStrictEqual(
+  api.normalizeManualProducts(pastedXlsxProductRows.rows).products.map((item) => item.unitJpy),
+  [6733, 2670],
+);
+
+const pastedProductUrlCsv = api.manualRowsFromPastedText([
+  "product_url,quantity,name,unit_jpy",
+  "https://www.japan-webike.kr/products/25427339.html,2,URL Item,1500",
+].join("\n"));
+assert.deepStrictEqual(pastedProductUrlCsv.errors, []);
+assert.deepStrictEqual(pastedProductUrlCsv.rows, [
+  {
+    code: "",
+    productUrl: "https://www.japan-webike.kr/products/25427339.html",
+    name: "URL Item",
+    quantity: "2",
+    unitJpy: "1500",
+  },
+]);
+
 assert.deepStrictEqual(api.normalizeStoredSettings({
   limitUsd: "200",
   usdKrw: "1500.5",
@@ -423,6 +646,75 @@ assert.deepStrictEqual(api.readStoredSettings(makeMemoryStorage("{bad json")), {
   maxGroups: 8,
   splitQuantity: true,
 });
+
+const draftStorage = makeMemoryStorage();
+const draftGroupKey = uiApi.groupFingerprint(recommendation.groups[0]);
+assert.strictEqual(uiApi.writeStoredDraft({
+  inputMode: "manual",
+  settings: {
+    limitUsd: 150,
+    usdKrw: 1465.73,
+    jpyKrw: 9.3399,
+    maxGroups: 8,
+    splitQuantity: true,
+  },
+  cartHtml: "<table-cart>",
+  bulkPasteInput: "상품번호\t상품명\t수량\t단가JPY",
+  manualRows: [{
+    code: "DRAFT-001",
+    productUrl: "https://www.japan-webike.kr/products/25427339.html",
+    name: "Draft Item",
+    quantity: "2",
+    unitJpy: "1500",
+  }],
+  analysis: {
+    products: [{
+      code: "DRAFT-001",
+      productUrl: "https://www.japan-webike.kr/products/25427339.html",
+      name: "Draft Item",
+      quantity: 2,
+      unitJpy: 1500,
+    }],
+    settings,
+    dirtyProductRows: [{
+      index: "0",
+      quantity: "3",
+      unitJpy: "1600",
+    }],
+  },
+  groupProgress: {
+    [draftGroupKey]: {
+      scriptCopied: true,
+      finalAmountChecked: true,
+      ordered: false,
+    },
+  },
+}, draftStorage), true);
+const storedDraft = uiApi.readStoredDraft(draftStorage);
+assert.strictEqual(storedDraft.version, 1);
+assert.strictEqual(storedDraft.inputMode, "manual");
+assert.strictEqual(storedDraft.cartHtml, "<table-cart>");
+assert.deepStrictEqual(storedDraft.manualRows[0], {
+  code: "DRAFT-001",
+  productUrl: "https://www.japan-webike.kr/products/25427339.html",
+  name: "Draft Item",
+  quantity: "2",
+  unitJpy: "1500",
+});
+assert.strictEqual(storedDraft.analysis.products[0].totalJpy, 3000);
+assert.deepStrictEqual(storedDraft.analysis.dirtyProductRows[0], {
+  index: "0",
+  quantity: "3",
+  unitJpy: "1600",
+});
+assert.deepStrictEqual(storedDraft.groupProgress[draftGroupKey], {
+  scriptCopied: true,
+  finalAmountChecked: true,
+  ordered: false,
+  updatedAt: "",
+});
+assert.strictEqual(uiApi.removeStoredDraft(draftStorage), true);
+assert.strictEqual(uiApi.readStoredDraft(draftStorage), null);
 
 assert.deepStrictEqual(api.normalizeExchangeRateData({
   source: "forwarder.kr",
