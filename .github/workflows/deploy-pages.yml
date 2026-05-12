@@ -59,6 +59,7 @@ jobs:
           mkdir -p dist/data
           cp index.html dist/index.html
           cp cart_group_calculator.html dist/cart_group_calculator.html
+          cp webike_quote_wizard.html dist/webike_quote_wizard.html
           cp .nojekyll dist/.nojekyll
           cp -R assets dist/assets
           cp data/exchange-rates.json dist/data/exchange-rates.json
