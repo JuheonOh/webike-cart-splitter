@@ -1,0 +1,158 @@
+.wcs-message,
+.wcs-summary {
+  margin: 10px 0;
+  border-radius: 6px;
+  padding: 9px 10px;
+  background: #f8fafc;
+  color: #344054;
+}
+
+.wcs-message {
+  white-space: pre-line;
+}
+
+.wcs-summary-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.wcs-summary-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 26px;
+  border: 1px solid #d7dde8;
+  border-radius: 6px;
+  padding: 4px 8px;
+  background: #ffffff;
+  color: #344054;
+  white-space: nowrap;
+}
+
+.wcs-summary-badge.warn {
+  border-color: #fcd34d;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.wcs-summary-badge.success {
+  border-color: #86efac;
+  background: #ecfdf3;
+  color: #027a48;
+}
+
+.wcs-summary-badge.error {
+  border-color: #fca5a5;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.wcs-summary-label {
+  font-size: 12px;
+}
+
+.wcs-summary-value {
+  font-family: "D2Coding", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.wcs-message.error {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.wcs-message.warn {
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.wcs-message.success {
+  background: #ecfdf3;
+  color: #027a48;
+}
+
+.wcs-restore {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 10px 0;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  padding: 9px 10px;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.wcs-restore[hidden] {
+  display: none;
+}
+
+.wcs-confirm {
+  display: grid;
+  gap: 10px;
+  margin: 10px 0;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  padding: 10px;
+  background: #eff6ff;
+  color: #1e3a8a;
+}
+
+.wcs-confirm.danger {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.wcs-confirm[hidden] {
+  display: none;
+}
+
+.wcs-confirm strong {
+  display: block;
+  color: inherit;
+}
+
+.wcs-confirm p {
+  margin: 4px 0 0;
+  color: inherit;
+  white-space: pre-line;
+}
+
+.wcs-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.wcs-failure-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: #991b1b;
+  font-size: 12px;
+}
+
+.wcs-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wcs-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #cbd5e1;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: wcs-spin 0.8s linear infinite;
+}
+
+@keyframes wcs-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

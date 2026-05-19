@@ -1,0 +1,90 @@
+.wcs-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #e6ebf2;
+  background: #f8fafc;
+}
+
+.wcs-title {
+  display: block;
+  font-size: 15px;
+  font-weight: 700;
+  color: #101828;
+}
+
+.wcs-subtitle {
+  display: block;
+  margin-top: 2px;
+  color: #667085;
+  font-size: 12px;
+}
+
+.wcs-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #111827;
+  border-radius: 6px;
+  background: #111827;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.18);
+}
+
+.wcs-close:hover {
+  background: #374151;
+  border-color: #374151;
+}
+
+.wcs-close:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.28);
+  outline-offset: 2px;
+}
+
+.wcs-body {
+  overflow: auto;
+  padding: 14px 16px 16px;
+}
+
+.wcs-field {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.wcs-field span,
+.wcs-label {
+  font-weight: 650;
+  color: #344054;
+}
+
+.wcs-file,
+.wcs-textarea {
+  width: 100%;
+  border: 1px solid #ccd4df;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #182230;
+  font: inherit;
+}
+
+.wcs-file {
+  padding: 8px;
+}
+
+.wcs-textarea {
+  min-height: 112px;
+  padding: 10px;
+  resize: vertical;
+  font-family: "D2Coding", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}

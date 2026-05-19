@@ -1,0 +1,137 @@
+.wcs-section {
+  margin-top: 14px;
+}
+
+.wcs-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 750;
+  color: #101828;
+}
+
+.wcs-list {
+  display: grid;
+  gap: 8px;
+}
+
+.wcs-empty {
+  color: #667085;
+  border: 1px dashed #d0d5dd;
+  border-radius: 6px;
+  padding: 10px;
+}
+
+.wcs-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px;
+  background: #ffffff;
+}
+
+.wcs-card.need-review {
+  border-color: #fbbf24;
+  background: #fffbeb;
+}
+
+.wcs-card.cart-failed {
+  border-color: #fca5a5;
+  background: #fff7f7;
+}
+
+.wcs-card.ignored {
+  opacity: 0.65;
+}
+
+.wcs-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.wcs-part {
+  font-family: "D2Coding", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-weight: 750;
+  color: #101828;
+  word-break: break-word;
+}
+
+.wcs-candidate .wcs-meta {
+  font-family: "D2Coding", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.wcs-meta {
+  margin-top: 4px;
+  color: #667085;
+  font-size: 12px;
+}
+
+.wcs-badge {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #3730a3;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.wcs-badge.need-review,
+.wcs-badge.cart-failed {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.wcs-badge.cart-added {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.wcs-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 9px;
+}
+
+.wcs-link {
+  color: #175cd3;
+  text-decoration: none;
+  font-weight: 650;
+}
+
+.wcs-link:hover {
+  text-decoration: underline;
+}
+
+.wcs-small-button {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #344054;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  padding: 6px 8px;
+}
+
+.wcs-small-button.primary {
+  border-color: #2563eb;
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.wcs-candidates {
+  display: grid;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.wcs-candidate {
+  border-top: 1px solid rgba(146, 64, 14, 0.18);
+  padding-top: 7px;
+}

@@ -1,0 +1,83 @@
+.wcs-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.wcs-button {
+  min-height: 34px;
+  border: 1px solid #2563eb;
+  border-radius: 6px;
+  background: #2563eb;
+  color: #ffffff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 650;
+  padding: 7px 11px;
+}
+
+.wcs-button.secondary {
+  border-color: #cbd5e1;
+  background: #ffffff;
+  color: #344054;
+}
+
+.wcs-button.warning {
+  border-color: #d97706;
+  background: #d97706;
+}
+
+.wcs-button.cart-ready {
+  animation: wcs-cart-nudge 1.6s ease-in-out infinite;
+  transform-origin: center;
+}
+
+.wcs-button.danger {
+  border-color: #dc2626;
+  background: #dc2626;
+}
+
+.wcs-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  animation: none;
+}
+
+@keyframes wcs-cart-nudge {
+  0%,
+  72%,
+  100% {
+    transform: rotateZ(0deg);
+  }
+
+  76% {
+    transform: rotateZ(-2.2deg);
+  }
+
+  80% {
+    transform: rotateZ(2.2deg);
+  }
+
+  84% {
+    transform: rotateZ(-2deg);
+  }
+
+  88% {
+    transform: rotateZ(2deg);
+  }
+
+  92% {
+    transform: rotateZ(-1deg);
+  }
+
+  96% {
+    transform: rotateZ(0deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wcs-button.cart-ready {
+    animation: none;
+  }
+}
