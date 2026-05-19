@@ -1,0 +1,53 @@
+{
+  "manifest_version": 3,
+  "name": "위바이크 장바구니 자동화",
+  "version": "0.1.0",
+  "description": "Webike 페이지에서 CSV 부품 목록을 찾아 장바구니에 담습니다.",
+  "action": {
+    "default_title": "위바이크 장바구니 자동화",
+    "default_icon": {
+      "16": "extension/icons/icon16.png",
+      "32": "extension/icons/icon32.png",
+      "48": "extension/icons/icon48.png",
+      "128": "extension/icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "extension/icons/icon16.png",
+    "32": "extension/icons/icon32.png",
+    "48": "extension/icons/icon48.png",
+    "128": "extension/icons/icon128.png"
+  },
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://www.japan-webike.kr/*"
+  ],
+  "background": {
+    "service_worker": "extension/service-worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.japan-webike.kr/*"
+      ],
+      "js": [
+        "extension/content-script.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "extension/content-style.css",
+        "extension/fonts/D2Coding.woff2"
+      ],
+      "matches": [
+        "https://www.japan-webike.kr/*"
+      ]
+    }
+  ]
+}
