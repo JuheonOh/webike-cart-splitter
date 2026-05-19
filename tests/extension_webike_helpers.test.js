@@ -73,8 +73,7 @@ const commonPrefix = `
   assert.strictEqual(helpers.isUsedProductUrl("https://www.japan-webike.kr/products/25681390.html"), false);
 }
 
-{
-  let copied = "";
+async function testCopyFailedRows() {
   const helpers = runSource(
     "src/extension/content/cart-actions.js",
     `${commonPrefix}
@@ -124,12 +123,11 @@ const commonPrefix = `
     `module.exports = { copyFailedRows, getCopied: () => __copied };`,
   );
 
-  helpers.copyFailedRows().then(() => {
-    const copiedCsv = helpers.getCopied();
-    assert(copiedCsv.startsWith("부품번호,수량,부품명,상품URL,사유,검색URL"));
-    assert(copiedCsv.includes("13225ML0405,2"));
-    assert(copiedCsv.includes("https://www.japan-webike.kr/products/25681390.html"));
-  });
+  await helpers.copyFailedRows();
+  const copiedCsv = helpers.getCopied();
+  assert(copiedCsv.startsWith("부품번호,수량,부품명,상품URL,사유,검색URL"));
+  assert(copiedCsv.includes("13225ML0405,2"));
+  assert(copiedCsv.includes("https://www.japan-webike.kr/products/25681390.html"));
 }
 
 {
@@ -172,4 +170,11 @@ const commonPrefix = `
   assert.strictEqual(cartHelpers.cartItemLabel(new FakeElement({ dataset: { sku: "24439713" } }), 0), "24439713");
 }
 
-console.log("extension webike helper tests passed");
+testCopyFailedRows()
+  .then(() => {
+    console.log("extension webike helper tests passed");
+  })
+  .catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
