@@ -4,10 +4,9 @@
   "private": true,
   "scripts": {
     "test": "npm run test:unit",
-    "test:unit": "node tests/cart_group_calculator.test.js && node tests/update_exchange_rates.test.js && node tests/cost_comparison.test.js",
+    "test:unit": "node tests/cart_group_calculator.test.js && node tests/update_exchange_rates.test.js && node tests/cost_comparison.test.js && node tests/webike_quote_core.test.js",
     "test:e2e": "node tests/e2e_cart_group_calculator.test.js",
-    "webike:quote": "node scripts/webike-quote.js",
-    "webike:install": "npx playwright install chromium"
+    "test:e2e:install": "npx playwright install chromium"
   },
   "devDependencies": {
     "playwright": "^1.52.0"
