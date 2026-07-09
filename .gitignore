@@ -5,6 +5,7 @@ reports/
 .env
 .env.*
 .omx/
+.gjc/
 .codex/*
 !.codex/agents/
 !.codex/agents/**
