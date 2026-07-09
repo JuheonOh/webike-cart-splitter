@@ -10,6 +10,9 @@ const fixturePath = path.join(__dirname, "fixtures", "exchange-rates", "forwarde
 const fixtureHtml = fs.readFileSync(fixturePath, "utf8");
 
 const rates = parseForwarderExchangeRates(fixtureHtml);
+const ratesWithoutPeriodColon = parseForwarderExchangeRates(
+  fixtureHtml.replace("적용기간 :", "적용기간"),
+);
 
 assert.deepStrictEqual(rates, {
   source: "forwarder.kr",
@@ -21,6 +24,8 @@ assert.deepStrictEqual(rates, {
     JPY: 9.3399,
   },
 });
+
+assert.strictEqual(ratesWithoutPeriodColon.period, rates.period);
 
 assert.strictEqual(sameExchangeRates(rates, {
   period: "2026-05-10 ~ 2026-05-16",

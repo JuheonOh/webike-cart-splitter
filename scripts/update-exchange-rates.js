@@ -33,7 +33,7 @@ function parseNumber(value) {
 
 function parsePeriod(lines) {
   const text = lines.join(" ");
-  const match = text.match(/적용기간\s*[:：]\s*(\d{4}-\d{2}-\d{2}\s*~\s*\d{4}-\d{2}-\d{2})/);
+  const match = text.match(/적용기간\s*[:：]?\s*(\d{4}-\d{2}-\d{2}\s*~\s*\d{4}-\d{2}-\d{2})/);
   return match ? match[1].replace(/\s*~\s*/, " ~ ") : "";
 }
 
