@@ -1,10 +1,10 @@
 {
   "source": "forwarder.kr",
   "sourceUrl": "https://www.forwarder.kr/curr/index.php?curr=ex_rate",
-  "period": "2026-06-14 ~ 2026-06-20",
-  "updatedAt": "2026-06-14T14:48:33+09:00",
+  "period": "2026-07-05 ~ 2026-07-11",
+  "updatedAt": "2026-07-10T19:38:51+09:00",
   "rates": {
-    "USD": 1531.46,
-    "JPY": 9.5542
+    "USD": 1548.52,
+    "JPY": 9.56
   }
 }
