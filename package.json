@@ -10,7 +10,6 @@
     "test:artifact": "node tests/artifact_audit.test.js",
     "test:e2e": "node tests/e2e_dist.test.js",
     "test:e2e:source": "node tests/e2e_cart_group_calculator.test.js",
-    "webike:quote": "node scripts/webike-quote.js",
     "webike:install": "npx playwright install chromium"
   },
   "devDependencies": {
