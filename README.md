@@ -32,11 +32,6 @@ Webike 장바구니 상품가를 관세청 과세환율 기준으로 나누고, 
 - 결과 파일: `data/exchange-rates.json`
 - GitHub Actions: `.github/workflows/deploy-pages.yml`
 - 수동 실행: GitHub Actions의 `deploy-pages` 워크플로우에서 `Run workflow`
-- 로컬 갱신:
-
-```bash
-node scripts/update-exchange-rates.js
-```
 
 ## GitHub Pages 배포
 
