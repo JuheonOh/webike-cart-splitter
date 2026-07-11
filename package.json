@@ -7,7 +7,9 @@
     "test": "npm run test:unit",
     "test:unit": "node tests/cart_group_calculator.test.js && node tests/update_exchange_rates.test.js && node tests/cost_comparison.test.js && node tests/quote_result.test.js",
     "build": "vite build && node scripts/copy-static-assets.js",
-    "test:e2e": "node tests/e2e_cart_group_calculator.test.js",
+    "test:artifact": "node tests/artifact_audit.test.js",
+    "test:e2e": "node tests/e2e_dist.test.js",
+    "test:e2e:source": "node tests/e2e_cart_group_calculator.test.js",
     "webike:quote": "node scripts/webike-quote.js",
     "webike:install": "npx playwright install chromium"
   },
