@@ -10,7 +10,7 @@
     "test:artifact": "node tests/artifact_audit.test.js",
     "test:e2e": "node tests/e2e_dist.test.js",
     "test:e2e:source": "node tests/e2e_cart_group_calculator.test.js",
-    "webike:install": "npx playwright install chromium"
+    "test:e2e:install": "playwright install chromium"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.4",

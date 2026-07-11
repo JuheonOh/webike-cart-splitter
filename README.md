@@ -44,7 +44,7 @@ node scripts/update-exchange-rates.js
 - GitHub 저장소 `Settings > Pages`에서 Source를 `GitHub Actions`로 설정한다.
 - `deploy-pages` 워크플로우는 `npm ci`로 잠금 파일 기준 의존성을 설치하고, `schedule`/`workflow_dispatch`에서는 환율 JSON을 갱신한 뒤 전체 검증을 통과한 데이터만 커밋·배포한다.
 - 배포 대상은 `npm run build`가 생성한 Vite `dist/` 산출물이다. 수동 static-copy artifact 구성은 사용하지 않는다.
-- 배포 전 `npm test`, `npm run build`, `npm run test:artifact`, `npm run webike:install`, `npm run test:e2e`를 순서대로 실행한다. `npm run test:e2e`는 빌드된 `dist/` 산출물을 대상으로 한다.
+- 배포 전 `npm test`, `npm run build`, `npm run test:artifact`, `npm run test:e2e:install`, `npm run test:e2e`를 순서대로 실행한다. `npm run test:e2e`는 빌드된 `dist/` 산출물을 대상으로 한다.
 
 
 ## 계산 기준
@@ -113,7 +113,7 @@ npm run test:artifact
 브라우저 E2E는 Playwright Chromium 설치 후 빌드된 `dist/` 산출물을 대상으로 실행한다.
 
 ```bash
-npm run webike:install
+npm run test:e2e:install
 npm run test:e2e
 ```
 

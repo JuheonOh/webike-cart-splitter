@@ -52,7 +52,7 @@ jobs:
           MAX_EXCHANGE_RATE_STALE_DAYS: "14"
 
       - name: Install Playwright browsers
-        run: npm run webike:install
+        run: npm run test:e2e:install
 
       - name: Verify built artifact E2E
         run: npm run test:e2e
