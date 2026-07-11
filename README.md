@@ -1,8 +1,9 @@
 # Webike Cart Splitter
 
-Webike 장바구니 상품가를 관세청 과세환율 기준으로 나눠 보고, 필요하면 Webike 장바구니 배송비를 Node CLI로 실측해 단일/분할 주문 비용을 비교하는 도구입니다.
+Webike 장바구니 상품가를 관세청 과세환율 기준으로 나눠 보고, 필요하면 Webike 장바구니 배송비를 Node CLI로 실측해 단일/분할 주문 비용을 비교하는 Vue + Vite 기반 MPA 도구입니다.
 
-정적 계산기는 **주문 계획 보조 도구**입니다. 별도 Node CLI는 상품 상세 조회, 배송비 조회, 필요 시 장바구니 담기까지만 자동화하며, 로그인, 주문, 결제는 자동화하지 않습니다.
+정적 계산기는 **주문 계획 보조 도구**입니다. 별도 Node CLI는 상품 상세 조회, 배송비 조회, 필요 시 장바구니 담기까지만 자동화하며, 로그인, 주문, 결제는 자동화하지 않습니다. 공개 URL은 기존 `index.html`, `cart_group_calculator.html`, `webike_quote_wizard.html` 경로를 유지합니다.
+
 
 ## 사용 방법
 
@@ -42,12 +43,13 @@ node scripts/update-exchange-rates.js
 Node CLI는 사람이 Webike 장바구니를 반복해서 구성하지 않아도 되도록 단일 주문과 추천 분할 주문 그룹의 배송비를 읽습니다. 기본 방식은 상품 상세 페이지에서 가격/무게/부피를 파싱한 뒤 Webike 배송비 API를 직접 호출하는 `quote-api` 모드입니다. Playwright 장바구니 측정은 Webike 화면 검증이나 API 우회가 필요할 때 쓰는 예비 모드입니다.
 
 ```bash
-npm install
+npm ci
 npm run webike:install
 npm run webike:quote -- --mode quote-api --input parts.csv
 npm run webike:quote -- --mode cart-script --input parts.csv --output /tmp/webike_add_cart.js
 npm run webike:quote -- --mode cart --input parts.csv --headed
 ```
+
 
 입력 CSV/TSV 컬럼:
 
@@ -76,9 +78,10 @@ npm run webike:quote -- --mode plan-only --input parts.csv --single-shipping-jpy
 
 - 예상 URL: `https://juheonoh.github.io/webike-cart-splitter/`
 - GitHub 저장소 `Settings > Pages`에서 Source를 `GitHub Actions`로 설정한다.
-- `deploy-pages` 워크플로우가 Pages artifact를 만들고 배포한다.
-- 배포 대상 파일은 `index.html`, `cart_group_calculator.html`, `.nojekyll`, `assets/`, `data/exchange-rates.json`이다.
-- `push`는 현재 파일을 배포하고, `schedule`/`workflow_dispatch`는 환율 JSON 갱신 후 배포한다.
+- `deploy-pages` 워크플로우는 `npm ci`로 잠금 파일 기준 의존성을 설치하고, `schedule`/`workflow_dispatch`에서는 환율 JSON을 갱신한 뒤 전체 검증을 통과한 데이터만 커밋·배포한다.
+- 배포 대상은 `npm run build`가 생성한 Vite `dist/` 산출물이다. 수동 static-copy artifact 구성은 사용하지 않는다.
+- 배포 전 `npm test`, `npm run build`, `npm run test:artifact`, `npm run webike:install`, `npm run test:e2e`를 순서대로 실행한다. `npm run test:e2e`는 빌드된 `dist/` 산출물을 대상으로 한다.
+
 
 ## 계산 기준
 
@@ -91,49 +94,72 @@ JPY 한도 = 면세 기준 USD * USD 수입환율 / JPY 수입환율
 ```
 
 - 같은 상품 수량 분할 허용을 켜면 수량 4개 상품은 1개 단위로 다른 주문 그룹에 배치될 수 있다.
+- 안전한 브라우저 계산을 위해 상품 500개, 상품별 수량 1,000개, 분할 계산 단위 10,000개, 최대 주문 20개로 제한한다.
 
 ## 현재 파일
 
-- `index.html`: GitHub Pages 진입점
-- `cart_group_calculator.html`: 실제 계산기
-- `assets/css/cart-group-calculator.css`: 계산기 스타일
+- `index.html`: GitHub Pages 진입점이며 Vite MPA 빌드 입력
+- `cart_group_calculator.html`: 공개 계산기 URL
+- `webike_quote_wizard.html`: 공개 Webike 견적 마법사 URL
+- `styleguide.html`: 개발자용 디자인 시스템/컴포넌트 확인 직접 경로. 공개 메인 메뉴에는 노출하지 않는다.
+- `src/`: Vue/Vite 화면, 공유 내비게이션, 디자인 시스템 소스
+- `assets/css/cart-group-calculator.css`: 계산기 스타일과 기존 공개 asset 경로 호환 레이어
+- `assets/js/delimited-core.js`: 계산기, 마법사, CLI가 공유하는 CSV/TSV 파서
 - `assets/js/calculator-core.js`: 계산, 파싱, XLSX 생성 로직
 - `assets/js/calculator-grouping.js`: 주문 그룹 추천 알고리즘
 - `assets/js/cart-group-calculator.js`: 계산기 화면 동작과 이벤트 연결
 - `assets/js/cost-comparison-core.js`: 단일/분할 주문 비용 비교와 실측 배송비 비교 로직
+- `assets/js/quote-result-core.js`: 견적 결과 버전, 상품 ID, 배송 그룹 일치 검증
 - `data/exchange-rates.json`: GitHub Pages에서 읽는 USD/JPY 수입환율 데이터
 - `scripts/update-exchange-rates.js`: forwarder.kr 고시환율 HTML 파서
 - `scripts/webike-quote.js`: Webike 장바구니 배송비 실측/비용 비교 Node CLI
-- `.github/workflows/deploy-pages.yml`: 환율 JSON 자동 갱신과 GitHub Pages 배포 워크플로우
+- `package.json`: npm 검증/빌드/배포 보조 명령
+- `package-lock.json`: `npm ci`가 사용하는 결정적 의존성 잠금 파일
+- `.github/workflows/deploy-pages.yml`: 환율 JSON 자동 갱신, Vite `dist/` 빌드, Pages 배포 워크플로우
 - `tests/cart_group_calculator.test.js`: 계산 그룹, XLSX 생성, 직접 입력 정규화, CSV/TSV 붙여넣기, 결과 HTML escape 검증
 - `tests/cost_comparison.test.js`: 비용 비교, 실측 배송비 비교, Node CLI 입력/검증 로직 검증
 - `tests/e2e_cart_group_calculator.test.js`: Playwright 기반 직접 입력, 그룹 스크립트 복사, 수정 반영 필요 UI 검증
 - `tests/update_exchange_rates.test.js`: forwarder.kr 고시환율 HTML 파싱 검증
+- `tests/quote_result.test.js`: 마법사 견적 결과와 측정/추천 그룹 일치 검증
+- `tests/artifact_audit.test.js`: 배포 파일, 참조 경로, 환율 스키마·최신성 검증
+- `tests/e2e_dist.test.js`: 빌드된 공개 화면, Vue 브리지, 계산기와 마법사 흐름 검증
 - `기록/20260506_webike_주문그룹_자동화_설계안.md`: 향후 자동화 설계안
+
 
 ## 검증
 
-별도 패키지 설치 없이 Node.js로 실행한다.
+의존성은 `package-lock.json` 기준으로 설치한다.
 
 ```bash
-node tests/cart_group_calculator.test.js
-node tests/update_exchange_rates.test.js
-node tests/cost_comparison.test.js
+npm ci
 ```
 
-`package.json` 기반으로 실행할 때는 다음 명령을 사용한다.
+기본 단위/Node 검증:
 
 ```bash
 npm test
 ```
 
-브라우저 E2E는 Playwright 설치 후 별도로 실행한다.
+Vite 빌드와 배포 산출물 감사:
 
 ```bash
-npm install
+npm run build
+npm run test:artifact
+```
+
+브라우저 E2E는 Playwright Chromium 설치 후 빌드된 `dist/` 산출물을 대상으로 실행한다.
+
+```bash
 npm run webike:install
 npm run test:e2e
 ```
+
+기존 소스 HTML을 직접 여는 file-url E2E가 필요할 때만 별도 호환 명령을 사용한다.
+
+```bash
+npm run test:e2e:source
+```
+
 
 검증 항목:
 
@@ -151,6 +177,7 @@ npm run test:e2e
 - 그룹 CSV ZIP 출력이 Node CLI 입력 컬럼과 왕복되는지 확인
 - 환율과 주문 설정이 저장값으로 정규화되는지 확인
 - 자동 환율 JSON 값이 계산기 입력용 데이터로 정규화되는지 확인
+- 환율 적용기간 만료를 감지하고 배포 시 허용 기간을 초과하지 않는지 확인
 - 장바구니 행에서 JPY/円/￥ 가격 표기를 파싱하는지 확인
 - Webike 장바구니 HTML fixture가 상품 목록으로 파싱되는지 확인
 - 붙여넣은 상품명/품번이 결과 영역에서 HTML로 실행되지 않도록 escape되는지 확인
@@ -160,6 +187,13 @@ npm run test:e2e
 - Node CLI가 Webike 상품 상세 fixture에서 가격/무게/부피를 파싱하고 배송비 API 응답으로 실측 비교를 만드는지 확인
 - Node CLI가 Webike 검색 결과로 DevTools 장바구니 일괄 담기 스크립트를 생성하는지 확인
 - Playwright에서 직접 입력, 그룹별 스크립트 복사, 수정 반영 필요 알림이 동작하는지 확인
+- 견적 결과의 출처/버전/상품 ID/측정 그룹이 다르면 마법사 다음 단계를 차단하는지 확인
+
+## cleanup / AI-slop 승인 게이트
+
+- 이번 Vue/Vite MPA 마이그레이션에서는 후보별 명시 승인이 없는 AI-slop 정리 후보를 action하지 않는다.
+- standalone 생성 스크립트 중복 로직은 기존 출력/저장/복사 동작 보존을 우선해 sync-risk hold로 남긴다.
+- 삭제는 참조가 없다는 증거와 전체 검증이 모두 있을 때만 strict deletion으로 진행한다.
 
 ## 방향
 
