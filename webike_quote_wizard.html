@@ -150,6 +150,15 @@
       font-size: 14px;
     }
 
+    .exchange-rate-source.warn {
+      color: var(--warn);
+      font-weight: 700;
+    }
+
+    .exchange-rate-source {
+      margin-top: 12px;
+    }
+
     .wizard {
       display: grid;
       grid-template-columns: 260px minmax(0, 1fr);
@@ -460,6 +469,8 @@
   </style>
 </head>
 <body>
+<div id="public-nav-root" data-page="wizard"></div>
+
 <main>
   <header>
     <div>
@@ -468,6 +479,7 @@
     </div>
     <a class="subtle" href="cart_group_calculator.html">기존 계산기 열기</a>
   </header>
+  <div id="production-feature-root" data-page="wizard"></div>
 
   <div class="wizard">
     <nav class="steps" aria-label="진행 단계">
@@ -516,7 +528,7 @@
           </div>
           <div>
             <label for="maxGroups">최대 주문 수</label>
-            <input id="maxGroups" type="number" min="1" step="1" value="8">
+            <input id="maxGroups" type="number" min="1" max="20" step="1" value="8">
           </div>
           <div>
             <label for="shippingService">배송 서비스</label>
@@ -528,6 +540,7 @@
             </select>
           </div>
         </div>
+        <p id="wizardExchangeRateSource" class="subtle exchange-rate-source" aria-live="polite">자동환율을 확인하는 중입니다.</p>
       </section>
 
       <section class="panel step-panel active" data-step-panel="1">
@@ -628,14 +641,24 @@
   </div>
 </main>
 
+<script type="module" src="/src/entries/public-shell.js"></script>
+<script src="assets/js/delimited-core.js"></script>
 <script src="assets/js/calculator-grouping.js"></script>
 <script src="assets/js/calculator-core.js"></script>
 <script src="assets/js/cost-comparison-core.js"></script>
+<script src="assets/js/quote-result-core.js"></script>
 <script>
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const cartCore = window.WebikeCartCore;
 const costCore = window.WebikeCostComparisonCore;
+const quoteResultCore = window.WebikeQuoteResultCore;
+const GROUPING_LIMITS = cartCore.GROUPING_LIMITS;
+const {
+  parseDelimitedRows,
+  normalizeHeader,
+  findColumn,
+} = window.WebikeDelimitedCore;
 const formatter = new Intl.NumberFormat("ko-KR");
 const FIXED_IMPORT_DUTY_RATE = 0.08;
 const FIXED_VAT_RATE = 0.1;
@@ -649,9 +672,23 @@ const state = {
   products: [],
   recommendations: {},
   comparison: null,
-  quoteSettings: null,
   selectedCartStrategy: "",
 };
+function publishWizardState(surfaceState) {
+  if (typeof window === "undefined" || typeof window.CustomEvent !== "function") return;
+  window.__webikeFeatureState = window.__webikeFeatureState || {};
+  window.__webikeFeatureState["webike:wizard-state"] = surfaceState;
+  window.dispatchEvent(new CustomEvent("webike:wizard-state", { detail: { state: surfaceState } }));
+}
+
+function currentWizardSurfaceState() {
+  if (state.step >= 5 && state.comparison) return "cart-group";
+  if (state.step >= 4 && state.comparison) return "comparison";
+  if (state.step >= 3 && state.quoteResult) return "preview";
+  if (state.step >= 2 && state.quoteScript) return "script";
+  return "steps";
+}
+
 
 function toNumber(value) {
   return Number(String(value ?? "").replace(/,/g, "").trim()) || 0;
@@ -716,56 +753,67 @@ function getSettings() {
     usdKrw,
     jpyKrw,
     limitJpy: limitUsd && usdKrw && jpyKrw ? (limitUsd * usdKrw) / jpyKrw : 0,
-    maxGroups: Math.max(1, Math.round(toNumber($("#maxGroups").value))),
+    maxGroups: Math.round(toNumber($("#maxGroups").value)),
     shippingService: $("#shippingService").value.trim().toUpperCase(),
     importDutyRate: FIXED_IMPORT_DUTY_RATE,
     vatRate: FIXED_VAT_RATE,
   };
 }
 
-function normalizeHeader(value) {
-  return String(value ?? "").trim().toLowerCase().replace(/[\s_()/-]/g, "");
-}
-
-function parseDelimitedLine(line, delimiter) {
-  if (delimiter === "\t") return line.split("\t").map((cell) => cell.trim());
-  const cells = [];
-  let current = "";
-  let quoted = false;
-
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index];
-    const next = line[index + 1];
-    if (char === '"' && quoted && next === '"') {
-      current += '"';
-      index += 1;
-    } else if (char === '"') {
-      quoted = !quoted;
-    } else if (char === delimiter && !quoted) {
-      cells.push(current.trim());
-      current = "";
-    } else {
-      current += char;
-    }
+function validateWizardSettings(settings) {
+  const errors = [];
+  if (![settings.limitUsd, settings.usdKrw, settings.jpyKrw].every((value) => Number.isFinite(value) && value > 0) ||
+    !Number.isFinite(settings.limitJpy) || settings.limitJpy <= 0) {
+    errors.push("면세 기준과 환율 값을 확인해 주세요.");
   }
-
-  cells.push(current.trim());
-  return cells;
+  if (!Number.isInteger(settings.maxGroups) || settings.maxGroups < 1 || settings.maxGroups > GROUPING_LIMITS.maxGroups) {
+    errors.push(`최대 주문 수는 1~${GROUPING_LIMITS.maxGroups} 사이로 입력해 주세요.`);
+  }
+  return errors;
 }
 
-function parseDelimitedRows(text) {
-  const value = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
-  if (!value) return [];
-  const delimiter = value.includes("\t") ? "\t" : ",";
-  return value.split("\n")
-    .map((line) => parseDelimitedLine(line, delimiter))
-    .filter((row) => row.some((cell) => String(cell || "").trim()));
+function setWizardExchangeRateMessage(message, warn = false) {
+  const element = $("#wizardExchangeRateSource");
+  element.classList.toggle("warn", warn);
+  element.textContent = `${message} `;
+  const link = document.createElement("a");
+  link.href = cartCore.EXCHANGE_RATE_SOURCE_URL;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.textContent = "고시환율 직접 확인";
+  element.appendChild(link);
 }
 
-function findColumn(headers, names, fallback) {
-  const index = headers.findIndex((header) => names.includes(header));
-  return index >= 0 ? index : fallback;
+async function loadWizardExchangeRates() {
+  const initialUsd = $("#usdKrw").value;
+  const initialJpy = $("#jpyKrw").value;
+  try {
+    const response = await fetch(`data/exchange-rates.json?v=${Date.now()}`, { cache: "no-store" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = cartCore.normalizeExchangeRateData(await response.json());
+    if (!data) throw new Error("invalid exchange rate data");
+    if ($("#usdKrw").value === initialUsd && $("#jpyKrw").value === initialJpy) {
+      $("#usdKrw").value = data.rates.USD;
+      $("#jpyKrw").value = data.rates.JPY;
+    }
+    const freshness = cartCore.getExchangeRatePeriodStatus(data.period);
+    const warning = freshness.state === "expired"
+      ? ` 적용기간이 ${freshness.staleDays}일 지났습니다.`
+      : freshness.state === "upcoming"
+        ? " 아직 적용 전 환율입니다."
+        : freshness.state === "invalid"
+          ? " 적용기간을 확인할 수 없습니다."
+          : "";
+    setWizardExchangeRateMessage(
+      `자동환율: 적용기간 ${data.period}, USD ${money(data.rates.USD, 2)}원, JPY ${money(data.rates.JPY, 4)}원.${warning}`,
+      freshness.state !== "current",
+    );
+  } catch {
+    setWizardExchangeRateMessage("자동환율을 불러오지 못했습니다. 현재 입력값을 사용합니다.", true);
+  }
 }
+
+const wizardExchangeRateLoadPromise = loadWizardExchangeRates();
 
 function parseInputRows(text) {
   const rawRows = parseDelimitedRows(text);
@@ -778,36 +826,52 @@ function parseInputRows(text) {
   ));
   const columns = {
     partNumber: findColumn(headers, ["partnumber", "partno", "품번", "상품번호", "sku", "code"], hasHeader ? -1 : 0),
-    productUrl: findColumn(headers, ["producturl", "url", "상품url", "상품주소", "링크", "productlink"], -1),
-    quantity: findColumn(headers, ["quantity", "qty", "수량", "count"], hasHeader ? -1 : 2),
-    name: findColumn(headers, ["name", "productname", "상품명", "제품명"], hasHeader ? -1 : 1),
+    productUrl: findColumn(headers, ["producturl", "url", "상품url", "상품주소", "링크", "productlink"], hasHeader ? -1 : 4),
+    quantity: findColumn(headers, ["quantity", "qty", "수량", "count"], hasHeader ? -1 : 1),
+    name: findColumn(headers, ["name", "productname", "상품명", "제품명"], hasHeader ? -1 : 2),
     unitJpy: findColumn(headers, ["unitjpy", "unitprice", "price", "단가jpy", "단가", "금액", "가격", "판매가", "jpy"], hasHeader ? -1 : 3),
   };
-  if (hasHeader && columns.quantity < 0) columns.quantity = -1;
-
   const dataRows = rawRows.slice(hasHeader ? 1 : 0);
+  if (dataRows.length > GROUPING_LIMITS.maxProducts) {
+    return { rows: [], errors: [`상품은 최대 ${GROUPING_LIMITS.maxProducts}개까지 입력할 수 있습니다.`] };
+  }
   const rows = [];
   dataRows.forEach((row, rowIndex) => {
     const partNumber = columns.partNumber >= 0 ? String(row[columns.partNumber] || "").trim() : "";
     const productUrl = columns.productUrl >= 0 ? String(row[columns.productUrl] || "").trim() : "";
-    const quantity = Math.max(0, Math.round(toNumber(columns.quantity >= 0 ? row[columns.quantity] : 1) || 1));
+    const quantityText = columns.quantity >= 0 ? String(row[columns.quantity] ?? "").replace(/,/g, "").trim() : "";
+    const parsedQuantity = quantityText ? Number(quantityText) : 1;
+    const quantity = Number.isFinite(parsedQuantity) ? Math.round(parsedQuantity) : 0;
     const name = columns.name >= 0 ? String(row[columns.name] || "").trim() : "";
     const unitJpy = Math.round(toNumber(columns.unitJpy >= 0 ? row[columns.unitJpy] : 0));
 
-    if (!partNumber && !productUrl && !name && !unitJpy) return;
-    if (!partNumber && !productUrl) errors.push(`${rowIndex + 1}번째 데이터 행의 상품번호 또는 상품 URL이 비어 있습니다.`);
-    if (quantity < 1) errors.push(`${partNumber || productUrl || rowIndex + 1} 수량은 1 이상이어야 합니다.`);
+    if (!partNumber && !productUrl && !name && !unitJpy && !quantityText) return;
+
+    const rowErrors = [];
+    if (!partNumber && !productUrl) rowErrors.push(`${rowIndex + 1}번째 데이터 행의 상품번호 또는 상품 URL이 비어 있습니다.`);
+    if (quantity < 1) rowErrors.push(`${partNumber || productUrl || rowIndex + 1} 수량은 1 이상이어야 합니다.`);
+    if (quantity > GROUPING_LIMITS.maxQuantityPerProduct) {
+      rowErrors.push(`${partNumber || productUrl || rowIndex + 1} 수량은 ${GROUPING_LIMITS.maxQuantityPerProduct} 이하여야 합니다.`);
+    }
+    if (rowErrors.length) {
+      errors.push(...rowErrors);
+      return;
+    }
 
     rows.push({
       partNumber,
       productUrl,
-      quantity: quantity || 1,
+      quantity,
       name,
       unitJpy,
     });
   });
 
   if (!rows.length) errors.push("상품 행을 찾지 못했습니다.");
+  const atomCount = rows.reduce((sum, row) => sum + row.quantity, 0);
+  if (atomCount > GROUPING_LIMITS.maxAtoms) {
+    errors.push(`수량 분할 계산 단위는 최대 ${GROUPING_LIMITS.maxAtoms}개까지 만들 수 있습니다.`);
+  }
   return { rows, errors };
 }
 
@@ -901,6 +965,7 @@ function setStep(step, { historyMode = "push" } = {}) {
     panel.classList.toggle("active", Number(panel.dataset.stepPanel) === state.step);
   });
   writeStepHistory(state.step, historyMode);
+  publishWizardState(currentWizardSurfaceState());
   return state.step;
 }
 
@@ -924,11 +989,15 @@ async function copyText(text) {
   textarea.style.position = "fixed";
   textarea.style.left = "-9999px";
   document.body.appendChild(textarea);
-  textarea.focus({ preventScroll: true });
-  textarea.select();
-  const copied = document.execCommand("copy");
-  textarea.remove();
-  return copied;
+  try {
+    textarea.focus({ preventScroll: true });
+    textarea.select();
+    const copied = document.execCommand("copy");
+    if (!copied) throw new Error("clipboard copy failed");
+    return true;
+  } finally {
+    textarea.remove();
+  }
 }
 
 function safeJsonForScript(value) {
@@ -953,12 +1022,26 @@ function buildQuoteScript() {
 (async function () {
   const items = ${safeJsonForScript(items)};
   const settings = ${safeJsonForScript(settings)};
+  const groupingLimits = ${safeJsonForScript(GROUPING_LIMITS)};
   const requiredHost = "www.japan-webike.kr";
   const searchEndpoint = "/api-search-es.html";
   const defaultShippingApiUrl = "https://japan.webike.net/api_shipping.html";
 
   if (location.hostname !== requiredHost) {
     console.error("Webike Korea 페이지에서 실행해 주세요: https://" + requiredHost + "/");
+    return;
+  }
+  const itemAtomCount = items.reduce(function (sum, item) { return sum + Number(item.quantity || 0); }, 0);
+  const limitJpy = Number(settings.limitUsd) * Number(settings.usdKrw) / Number(settings.jpyKrw);
+  if (!items.length || items.length > groupingLimits.maxProducts ||
+    ![settings.limitUsd, settings.usdKrw, settings.jpyKrw].every(function (value) {
+      return Number.isFinite(Number(value)) && Number(value) > 0;
+    }) || !Number.isFinite(limitJpy) || limitJpy <= 0 ||
+    !Number.isInteger(settings.maxGroups) || settings.maxGroups < 1 || settings.maxGroups > groupingLimits.maxGroups ||
+    items.some(function (item) {
+      return !Number.isInteger(Number(item.quantity)) || Number(item.quantity) < 1 || Number(item.quantity) > groupingLimits.maxQuantityPerProduct;
+    }) || itemAtomCount > groupingLimits.maxAtoms) {
+    console.error("상품 수량 또는 최대 주문 수가 Webike Cart Splitter 안전 한도를 벗어났습니다. 입력 화면에서 다시 확인해 주세요.");
     return;
   }
 
@@ -1119,12 +1202,20 @@ function buildQuoteScript() {
   function twoGroupDp(atoms, limitJpy) {
     const total = atoms.reduce(function (sum, item) { return sum + item.totalJpy; }, 0);
     const dp = new Map([[0, null]]);
-    atoms.forEach(function (atom, index) {
-      Array.from(dp.keys()).forEach(function (sum) {
+    let transitions = 0;
+    for (let index = 0; index < atoms.length; index += 1) {
+      const atom = atoms[index];
+      const entries = Array.from(dp.keys());
+      for (const sum of entries) {
+        if (transitions >= groupingLimits.maxExactDpTransitions) return null;
+        transitions += 1;
         const next = sum + atom.totalJpy;
-        if (next <= limitJpy && !dp.has(next)) dp.set(next, { previous: sum, index: index });
-      });
-    });
+        if (next <= limitJpy && !dp.has(next)) {
+          if (dp.size >= groupingLimits.maxExactDpStates) return null;
+          dp.set(next, { previous: sum, index: index });
+        }
+      }
+    }
     let bestSum = null;
     dp.forEach(function (_, sum) {
       const other = total - sum;
@@ -1265,7 +1356,7 @@ function buildQuoteScript() {
       shippingServiceCode: selected.serviceCode,
       shippingType: selected.type,
       products: products.map(function (item) {
-        return { code: item.code, name: item.name, quantity: item.quantity, unitJpy: item.unitJpy, totalJpy: item.totalJpy, productId: item.productId, productUrl: item.productUrl };
+        return { index: item.index, code: item.code, name: item.name, quantity: item.quantity, unitJpy: item.unitJpy, totalJpy: item.totalJpy, productId: item.productId, productUrl: item.productUrl };
       }),
       request: request,
       shippingCandidates: candidates
@@ -1347,7 +1438,8 @@ function buildQuoteScript() {
 
   if (automationResults.some(function (item) { return item.status === "failed"; }) || !products.length) {
     showResult({
-      source: "webike-cart-splitter-wizard",
+      source: ${safeJsonForScript(quoteResultCore.QUOTE_RESULT_SOURCE)},
+      schemaVersion: ${quoteResultCore.QUOTE_RESULT_SCHEMA_VERSION},
       status: "failed",
       generatedAt: new Date().toISOString(),
       settings: settings,
@@ -1367,7 +1459,8 @@ function buildQuoteScript() {
   const rowUnitMeasurement = await quoteSplitStrategy(products, rowUnitRecommendation, "행 단위 주문");
 
   showResult({
-    source: "webike-cart-splitter-wizard",
+    source: ${safeJsonForScript(quoteResultCore.QUOTE_RESULT_SOURCE)},
+    schemaVersion: ${quoteResultCore.QUOTE_RESULT_SCHEMA_VERSION},
     status: "measured",
     generatedAt: new Date().toISOString(),
     settings: settings,
@@ -1390,12 +1483,20 @@ function buildQuoteScript() {
 }
 
 function buildAddCartScript(items) {
+  if (!Array.isArray(items) || !items.length) {
+    throw new Error("장바구니 스크립트에 포함할 상품이 없습니다.");
+  }
+  const invalidItems = items.filter((item) => !String(item.productId || "").trim() || !Number.isInteger(Number(item.quantity)) || Number(item.quantity) < 1);
+  if (invalidItems.length) {
+    const labels = invalidItems.map((item) => item.code || item.name || "상품 ID 없음").join(", ");
+    throw new Error(`장바구니 상품 정보가 완전하지 않습니다: ${labels}`);
+  }
   const safeItems = items.map((item) => ({
     partNumber: item.code,
     productsId: item.productId,
     quantity: item.quantity,
     name: item.name,
-  })).filter((item) => item.productsId && item.quantity > 0);
+  }));
 
   return `// Webike Cart Splitter add-cart script.
 // Open https://www.japan-webike.kr/, then paste this whole script into DevTools Console.
@@ -1553,19 +1654,8 @@ function measuredStrategy(code, label, shipments, settings) {
   );
 }
 
-function splitMeasurementSource(measurement, code) {
-  if (measurement?.strategies?.[code]) return measurement.strategies[code];
-  if (code === "split_quantity" && Array.isArray(measurement?.splitShipments)) {
-    return {
-      splitShipments: measurement.splitShipments,
-      splitUnavailableReason: measurement.splitUnavailableReason,
-    };
-  }
-  return null;
-}
-
 function splitMeasuredStrategy(measurement, code, label, settings) {
-  const source = splitMeasurementSource(measurement, code);
+  const source = measurement?.strategies?.[code];
   const shipments = source?.splitShipments || [];
   if (!shipments.length) {
     return unavailableStrategy(
@@ -1738,8 +1828,8 @@ function renderCartScripts() {
         </select>
       </div>
       <div>
-        <label>선택 전략</label>
-        <input type="text" value="${escapeHtml(cartStrategyLabel(selectedStrategy))}" readonly>
+        <label for="selectedCartStrategy">선택 전략</label>
+        <input id="selectedCartStrategy" type="text" value="${escapeHtml(cartStrategyLabel(selectedStrategy))}" readonly>
       </div>
     </div>
     <div class="group-list">
@@ -1776,47 +1866,90 @@ function renderCartScripts() {
     </div>
   `;
 }
+function clearQuoteResultState() {
+  state.quoteResult = null;
+  state.products = [];
+  state.recommendations = {};
+  state.comparison = null;
+  state.selectedCartStrategy = "";
+  hideNextAction("#quoteResultNextAction");
+  renderQuoteResultPreview();
+  renderComparison();
+  renderCartScripts();
+  updateStepState();
+}
+
 
 function applyQuoteResult(raw) {
   let result;
   try {
     result = JSON.parse(raw);
   } catch {
-    hideNextAction("#quoteResultNextAction");
+    clearQuoteResultState();
     showStatus("#quoteResultStatus", "bad", "JSON 형식이 올바르지 않습니다.");
     return;
   }
 
-  state.quoteResult = result;
-  state.quoteSettings = result.settings || getSettings();
-  state.products = Array.isArray(result.products)
-    ? result.products.map((item, index) => ({
-      ...item,
-      index: Number.isFinite(Number(item.index)) ? Number(item.index) : index,
-      quantity: Math.max(1, Math.round(toNumber(item.quantity))),
-      unitJpy: Math.round(toNumber(item.unitJpy)),
-      totalJpy: Math.round(toNumber(item.totalJpy || item.unitJpy * item.quantity)),
-    }))
-    : [];
+  const envelopeValidation = quoteResultCore.validateQuoteResultEnvelope(result);
+  if (!envelopeValidation.valid) {
+    clearQuoteResultState();
+    showStatus("#quoteResultStatus", "bad", envelopeValidation.errors[0]);
+    return;
+  }
 
-  if (result.status !== "measured" || !result.measurement || !state.products.length) {
+  const currentSettingsErrors = validateWizardSettings(getSettings());
+  if (currentSettingsErrors.length) {
+    clearQuoteResultState();
+    showStatus("#quoteResultStatus", "bad", currentSettingsErrors[0]);
+    return;
+  }
+
+  if (result.status === "failed") {
+    const failedValidation = quoteResultCore.validateFailedQuoteResult(result);
+    if (!failedValidation.valid) {
+      clearQuoteResultState();
+      showStatus("#quoteResultStatus", "bad", failedValidation.errors[0]);
+      return;
+    }
+    clearQuoteResultState();
+    state.quoteResult = result;
+    state.products = result.products;
     renderQuoteResultPreview();
     hideNextAction("#quoteResultNextAction");
     showStatus("#quoteResultStatus", "warn", "견적이 완료되지 않았습니다. 실패 행을 확인해 주세요.");
-    state.recommendations = {};
-    state.comparison = null;
-    state.selectedCartStrategy = "";
-    renderComparison();
-    renderCartScripts();
     updateStepState();
     return;
   }
 
+  const validation = quoteResultCore.validateQuoteResult(result, {
+    expectedInputRows: state.inputRows,
+    expectedSettings: getSettings(),
+  });
+  if (!validation.valid) {
+    clearQuoteResultState();
+    showStatus("#quoteResultStatus", "bad", validation.errors[0]);
+    return;
+  }
+
   const settings = {
-    ...state.quoteSettings,
-    limitJpy: state.quoteSettings.limitUsd * state.quoteSettings.usdKrw / state.quoteSettings.jpyKrw,
+    ...validation.settings,
+    limitJpy: validation.settings.limitUsd * validation.settings.usdKrw / validation.settings.jpyKrw,
   };
-  state.recommendations = buildRecommendations(state.products, settings);
+  const recommendations = buildRecommendations(validation.products, settings);
+  const measurementValidation = quoteResultCore.validateRecommendationMeasurements(
+    recommendations,
+    result.measurement,
+    validation.products,
+  );
+  if (!measurementValidation.valid) {
+    clearQuoteResultState();
+    showStatus("#quoteResultStatus", "bad", measurementValidation.errors[0]);
+    return;
+  }
+
+  state.quoteResult = result;
+  state.products = validation.products;
+  state.recommendations = recommendations;
   state.comparison = compareWizardStrategies(result.measurement, settings);
   state.selectedCartStrategy = state.comparison.cheapestCode || "";
   renderQuoteResultPreview();
@@ -1839,33 +1972,59 @@ $("#csvFile").addEventListener("change", (event) => {
     showStatus("#inputStatus", "bad", error.message);
   });
 });
-
-$("#parseInputButton").addEventListener("click", () => {
-  const result = parseInputRows($("#pasteInput").value);
-  if (result.errors.length) {
-    state.inputRows = result.rows;
-    renderInputPreview();
-    showStatus("#inputStatus", "bad", result.errors[0]);
-    updateStepState();
-    return;
-  }
-  state.inputRows = result.rows;
-  state.quoteScript = buildQuoteScript();
+function resetWizardDerivedState() {
+  state.quoteScript = "";
   state.quoteResult = null;
   state.products = [];
   state.recommendations = {};
   state.comparison = null;
   state.selectedCartStrategy = "";
-  $("#copyQuoteScriptButton").disabled = false;
-  $("#showQuoteScriptButton").disabled = false;
+  $("#copyQuoteScriptButton").disabled = true;
+  $("#showQuoteScriptButton").disabled = true;
   hideNextAction("#quoteScriptNextAction");
   hideNextAction("#quoteResultNextAction");
   clearStatus("#quoteScriptStatus");
   clearStatus("#quoteResultStatus");
   $("#quoteResultInput").value = "";
+  $("#quoteScriptOutput").value = "";
+  $("#quoteScriptOutput").classList.add("hidden");
   renderQuoteResultPreview();
   renderComparison();
   renderCartScripts();
+}
+
+function refreshQuoteScript({ reportError = false } = {}) {
+  const errors = validateWizardSettings(getSettings());
+  if (!state.inputRows.length || errors.length) {
+    state.quoteScript = "";
+    $("#copyQuoteScriptButton").disabled = true;
+    $("#showQuoteScriptButton").disabled = true;
+    hideNextAction("#quoteScriptNextAction");
+    if (reportError && errors.length) showStatus("#quoteScriptStatus", "bad", errors[0]);
+    return false;
+  }
+  state.quoteScript = buildQuoteScript();
+  $("#copyQuoteScriptButton").disabled = false;
+  $("#showQuoteScriptButton").disabled = false;
+  return true;
+}
+
+
+$("#parseInputButton").addEventListener("click", async () => {
+  await wizardExchangeRateLoadPromise;
+  const result = parseInputRows($("#pasteInput").value);
+  const settingsErrors = validateWizardSettings(getSettings());
+  if (result.errors.length || settingsErrors.length) {
+    state.inputRows = [];
+    resetWizardDerivedState();
+    renderInputPreview();
+    showStatus("#inputStatus", "bad", result.errors[0] || settingsErrors[0]);
+    setStep(1, { historyMode: "replace" });
+    return;
+  }
+  state.inputRows = result.rows;
+  resetWizardDerivedState();
+  refreshQuoteScript();
   renderInputPreview();
   showStatus("#inputStatus", "ok", `${result.rows.length}개 상품을 반영했습니다.`);
   setStep(2);
@@ -1875,27 +2034,14 @@ $("#clearInputButton").addEventListener("click", () => {
   $("#csvFile").value = "";
   $("#pasteInput").value = "";
   state.inputRows = [];
-  state.quoteScript = "";
-  state.quoteResult = null;
-  state.products = [];
-  state.recommendations = {};
-  state.comparison = null;
-  state.selectedCartStrategy = "";
-  hideNextAction("#quoteScriptNextAction");
-  hideNextAction("#quoteResultNextAction");
-  clearStatus("#quoteScriptStatus");
-  clearStatus("#quoteResultStatus");
-  $("#quoteResultInput").value = "";
+  resetWizardDerivedState();
   renderInputPreview();
-  renderQuoteResultPreview();
-  renderComparison();
-  renderCartScripts();
   clearStatus("#inputStatus");
   updateStepState();
 });
 
 $("#copyQuoteScriptButton").addEventListener("click", async () => {
-  state.quoteScript = buildQuoteScript();
+  if (!refreshQuoteScript({ reportError: true })) return;
   try {
     await copyText(state.quoteScript);
     showStatus("#quoteScriptStatus", "ok", "견적 스크립트를 복사했습니다. Webike 페이지 Console에 붙여넣어 실행하세요.");
@@ -1907,7 +2053,7 @@ $("#copyQuoteScriptButton").addEventListener("click", async () => {
 });
 
 $("#showQuoteScriptButton").addEventListener("click", () => {
-  state.quoteScript = buildQuoteScript();
+  if (!refreshQuoteScript({ reportError: true })) return;
   const output = $("#quoteScriptOutput");
   output.classList.toggle("hidden");
   output.value = state.quoteScript;
@@ -1932,19 +2078,20 @@ $("#cartScriptArea").addEventListener("click", async (event) => {
   const groupIndex = Number(button.dataset.copyCartScript);
   const group = cartGroupsForSelectedStrategy()[groupIndex];
   if (!group) return;
-  const script = buildAddCartScript(aggregateGroupWithProductIds(group));
   const originalText = button.textContent;
   button.disabled = true;
   button.textContent = "복사 중";
   try {
+    const script = buildAddCartScript(aggregateGroupWithProductIds(group));
     await copyText(script);
     button.textContent = "복사됨";
     window.setTimeout(() => {
       button.textContent = originalText;
       button.disabled = false;
     }, 1600);
-  } catch {
-    button.textContent = "복사 실패";
+  } catch (error) {
+    button.textContent = "생성 실패";
+    button.title = error.message;
     window.setTimeout(() => {
       button.textContent = originalText;
       button.disabled = false;
@@ -1971,7 +2118,13 @@ window.addEventListener("popstate", (event) => {
 
 ["limitUsd", "usdKrw", "jpyKrw", "maxGroups", "shippingService"].forEach((id) => {
   $(`#${id}`).addEventListener("change", () => {
-    if (state.inputRows.length) state.quoteScript = buildQuoteScript();
+    if (!state.inputRows.length) return;
+    resetWizardDerivedState();
+    const refreshed = refreshQuoteScript({ reportError: true });
+    if (refreshed) {
+      showStatus("#quoteScriptStatus", "warn", "계산 기준이 변경되어 견적 스크립트를 다시 만들었습니다.");
+    }
+    setStep(Math.min(state.step, 2), { historyMode: "replace" });
   });
 });
 

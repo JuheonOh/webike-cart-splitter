@@ -7,8 +7,11 @@
   <link rel="stylesheet" href="assets/css/cart-group-calculator.css">
 </head>
 <body>
+<div id="public-nav-root" data-page="calculator"></div>
+
 <main>
   <h1>관세청 과세환율 주문 그룹 계산기</h1>
+  <div id="production-feature-root" data-page="calculator"></div>
 
   <div class="layout">
     <section class="panel">
@@ -83,18 +86,18 @@
         </div>
         <div>
           <label for="maxGroups">최대 주문 수</label>
-          <input id="maxGroups" type="number" min="1" step="1" value="8">
+          <input id="maxGroups" type="number" min="1" max="20" step="1" value="8">
         </div>
-        <div class="wide check-row">
+        <label class="wide check-row">
           <input id="splitQuantity" type="checkbox" checked>
           <span>같은 상품 수량 분할 허용</span>
-        </div>
+        </label>
       </div>
       <p class="note">
         관세청 고시 수입환율은 주 단위로 바뀝니다. 주문 또는 입항 예상 주차의 값을 입력하세요.
       </p>
       <p class="source" id="exchangeRateSource" aria-live="polite">
-        기본값: 적용기간 2026-05-10 ~ 2026-05-16, USD 1,465.73원, JPY 9.3399원.
+        자동환율을 확인하는 중입니다. 불러오지 못하면 현재 입력값을 사용합니다.
         <a href="https://www.forwarder.kr/curr/index.php?curr=ex_rate" target="_blank" rel="noopener noreferrer">관세청 고시환율 조회</a>
       </p>
     </aside>
@@ -105,6 +108,8 @@
   </section>
 </main>
 
+<script type="module" src="/src/entries/public-shell.js"></script>
+<script src="assets/js/delimited-core.js"></script>
 <script src="assets/js/calculator-grouping.js"></script>
 <script src="assets/js/calculator-core.js"></script>
 <script src="assets/js/cart-group-calculator.js"></script>

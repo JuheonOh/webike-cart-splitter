@@ -5,6 +5,11 @@ const path = require("path");
 
 const cartCore = require("../assets/js/calculator-core.js");
 const costCore = require("../assets/js/cost-comparison-core.js");
+const {
+  parseDelimitedRows,
+  normalizeHeader,
+  findColumn,
+} = require("../assets/js/delimited-core.js");
 
 const DEFAULT_BASE_URL = "https://japan.webike.net/";
 const DEFAULT_PRODUCT_BASE_URL = "https://www.japan-webike.kr/";
@@ -138,51 +143,6 @@ function normalizeUrlKey(value) {
   return cleanText(value).replace(/\/+$/, "").toLowerCase();
 }
 
-function parseDelimitedLine(line, delimiter) {
-  if (delimiter === "\t") return line.split("\t").map((cell) => cell.trim());
-
-  const cells = [];
-  let current = "";
-  let quoted = false;
-
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index];
-    const next = line[index + 1];
-    if (char === '"' && quoted && next === '"') {
-      current += '"';
-      index += 1;
-    } else if (char === '"') {
-      quoted = !quoted;
-    } else if (char === delimiter && !quoted) {
-      cells.push(current.trim());
-      current = "";
-    } else {
-      current += char;
-    }
-  }
-
-  cells.push(current.trim());
-  return cells;
-}
-
-function parseDelimitedRows(text) {
-  const value = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
-  if (!value) return [];
-  const delimiter = value.includes("\t") ? "\t" : ",";
-  return value.split("\n")
-    .map((line) => parseDelimitedLine(line, delimiter))
-    .filter((row) => row.some((cell) => cleanText(cell)));
-}
-
-function normalizeHeader(value) {
-  return cleanText(value).toLowerCase().replace(/[\s_()/-]/g, "");
-}
-
-function findColumn(headers, names, fallback) {
-  const index = headers.findIndex((header) => names.includes(header));
-  return index >= 0 ? index : fallback;
-}
-
 function readInputRows(inputPath) {
   const rawRows = parseDelimitedRows(fs.readFileSync(inputPath, "utf8"));
   if (!rawRows.length) throw new Error("입력 파일에 행이 없습니다.");
@@ -199,6 +159,9 @@ function readInputRows(inputPath) {
     unitJpy: findColumn(headers, ["unitjpy", "unitprice", "price", "단가jpy", "단가", "jpy"], hasHeader ? -1 : 3),
   };
   const dataRows = rawRows.slice(hasHeader ? 1 : 0);
+  if (dataRows.length > cartCore.GROUPING_LIMITS.maxProducts) {
+    throw new Error(`상품은 최대 ${cartCore.GROUPING_LIMITS.maxProducts}개까지 입력할 수 있습니다.`);
+  }
   const merged = new Map();
 
   dataRows.forEach((row, rowIndex) => {
@@ -210,6 +173,9 @@ function readInputRows(inputPath) {
 
     if (!partNumber && !productUrl) throw new Error(`${rowIndex + 1}번째 데이터 행의 부품번호 또는 상품 URL이 비어 있습니다.`);
     if (quantity < 1) throw new Error(`${partNumber || productUrl} 수량은 1 이상이어야 합니다.`);
+    if (quantity > cartCore.GROUPING_LIMITS.maxQuantityPerProduct) {
+      throw new Error(`${partNumber || productUrl} 수량은 ${cartCore.GROUPING_LIMITS.maxQuantityPerProduct} 이하여야 합니다.`);
+    }
 
     const key = partNumber ? normalizePartNumber(partNumber) : normalizeUrlKey(productUrl);
     const current = merged.get(key) || {
@@ -219,6 +185,9 @@ function readInputRows(inputPath) {
       unitJpy,
     };
     current.quantity += quantity;
+    if (current.quantity > cartCore.GROUPING_LIMITS.maxQuantityPerProduct) {
+      throw new Error(`${partNumber || productUrl} 병합 수량은 ${cartCore.GROUPING_LIMITS.maxQuantityPerProduct} 이하여야 합니다.`);
+    }
     if (!current.partNumber && partNumber) current.partNumber = partNumber;
     if (!current.productUrl && productUrl) current.productUrl = productUrl;
     if (!current.name && name) current.name = name;
@@ -229,25 +198,59 @@ function readInputRows(inputPath) {
   return [...merged.values()];
 }
 
-function loadExchangeRateSettings(options) {
+function loadExchangeRateSettings(options = {}) {
   const defaults = cartCore.DEFAULT_SETTINGS;
   const exchangePath = path.join(__dirname, "..", "data", "exchange-rates.json");
+  const maxGroups = options.maxGroups === undefined ? defaults.maxGroups : Number(options.maxGroups);
+  if (!Number.isInteger(maxGroups) || maxGroups < 1 || maxGroups > cartCore.GROUPING_LIMITS.maxGroups) {
+    throw new Error(`--max-groups는 1~${cartCore.GROUPING_LIMITS.maxGroups} 사이의 정수여야 합니다.`);
+  }
+  const positiveOption = (value, name) => {
+    if (value === undefined) return null;
+    const number = toNumber(value);
+    if (!Number.isFinite(number) || number <= 0) {
+      throw new Error(`${name}는 0보다 큰 숫자여야 합니다.`);
+    }
+    return number;
+  };
+  const limitUsd = positiveOption(options.limitUsd, "--limit-usd") ?? defaults.limitUsd;
+  const usdKrw = positiveOption(options.usdKrw, "--usd-krw");
+  const jpyKrw = positiveOption(options.jpyKrw, "--jpy-krw");
   let exchangeRates = null;
 
-  try {
-    exchangeRates = cartCore.normalizeExchangeRateData(JSON.parse(fs.readFileSync(exchangePath, "utf8")));
-  } catch {
-    exchangeRates = null;
+  if (usdKrw === null || jpyKrw === null) {
+    let rawExchangeRates;
+    try {
+      rawExchangeRates = JSON.parse(fs.readFileSync(exchangePath, "utf8"));
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new Error(`환율 데이터 파일을 읽을 수 없습니다: ${reason}`);
+    }
+    exchangeRates = cartCore.normalizeExchangeRateData(rawExchangeRates);
+    if (!exchangeRates) {
+      throw new Error("환율 데이터 파일 형식이 올바르지 않습니다.");
+    }
   }
 
   const settings = {
-    limitUsd: toNumber(options.limitUsd) || defaults.limitUsd,
-    usdKrw: toNumber(options.usdKrw) || exchangeRates?.rates?.USD || defaults.usdKrw,
-    jpyKrw: toNumber(options.jpyKrw) || exchangeRates?.rates?.JPY || defaults.jpyKrw,
-    maxGroups: Math.max(1, Math.round(toNumber(options.maxGroups) || defaults.maxGroups)),
+    limitUsd,
+    usdKrw: usdKrw ?? exchangeRates.rates.USD,
+    jpyKrw: jpyKrw ?? exchangeRates.rates.JPY,
+    maxGroups,
     splitQuantity: options.splitQuantity,
   };
   settings.limitJpy = (settings.limitUsd * settings.usdKrw) / settings.jpyKrw;
+  if (exchangeRates) {
+    const freshness = cartCore.getExchangeRatePeriodStatus(exchangeRates.period);
+    settings.exchangeRatePeriod = exchangeRates.period;
+    settings.exchangeRateState = freshness.state;
+    settings.exchangeRateStaleDays = freshness.staleDays;
+    if (freshness.state === "expired") {
+      logProgress(options, `[환율 경고] 적용기간 ${exchangeRates.period} 종료 후 ${freshness.staleDays}일이 지났습니다.`);
+    } else if (freshness.state !== "current") {
+      logProgress(options, `[환율 경고] 적용기간 ${exchangeRates.period} 상태를 확인해 주세요 (${freshness.state}).`);
+    }
+  }
   return settings;
 }
 
@@ -282,6 +285,29 @@ function productsFromInput(rows) {
     unitJpy: row.unitJpy,
     totalJpy: row.quantity * row.unitJpy,
   }));
+}
+
+function recommendGroupsOrThrow(products, groupSettings) {
+  const validation = cartCore.validateGroupingRequest(products, groupSettings);
+  if (!validation.valid) throw new Error(validation.message);
+  return cartCore.recommendGroups(products, groupSettings);
+}
+
+function preflightInputRows(inputRows, groupSettings) {
+  const products = inputRows.map((row, index) => {
+    const unitJpy = toNumber(row.unitJpy) || 1;
+    return {
+      index,
+      code: row.partNumber || row.productUrl || `row-${index + 1}`,
+      name: row.name || row.partNumber || row.productUrl || `row-${index + 1}`,
+      quantity: row.quantity,
+      unitJpy,
+      totalJpy: row.quantity * unitJpy,
+    };
+  });
+  const validation = cartCore.validateGroupingRequest(products, groupSettings);
+  if (!validation.valid) throw new Error(validation.message);
+  return validation;
 }
 
 function escapeRegExp(value) {
@@ -823,7 +849,7 @@ function buildReport({
   automationResults = [],
   measurement = null,
 }) {
-  const resolvedRecommendation = recommendation || cartCore.recommendGroups(products, groupSettings);
+  const resolvedRecommendation = recommendation || recommendGroupsOrThrow(products, groupSettings);
   const resolvedComparison = comparison || costCore.compareOrderStrategies(
     products,
     resolvedRecommendation,
@@ -1368,6 +1394,7 @@ function shipmentFromScenario(result) {
 }
 
 async function runCartMode(options, inputRows, groupSettings) {
+  preflightInputRows(inputRows, groupSettings);
   const { chromium } = requirePlaywright();
   const browser = await chromium.launch({ headless: !options.headed });
   const automationResults = [];
@@ -1384,7 +1411,7 @@ async function runCartMode(options, inputRows, groupSettings) {
     }
 
     const products = singleScenario.quote.products.map((item, index) => ({ ...item, index }));
-    const recommendation = cartCore.recommendGroups(products, groupSettings);
+    const recommendation = recommendGroupsOrThrow(products, groupSettings);
     const splitScenarios = [];
 
     if (recommendation.groups.length > 1) {
@@ -1427,6 +1454,7 @@ async function runCartMode(options, inputRows, groupSettings) {
 }
 
 async function runQuoteApiMode(options, inputRows, groupSettings) {
+  preflightInputRows(inputRows, groupSettings);
   const automationResults = [];
   const parsedProducts = [];
   const rowCount = inputRows.length;
@@ -1469,7 +1497,7 @@ async function runQuoteApiMode(options, inputRows, groupSettings) {
   }
 
   const products = parsedProducts;
-  const recommendation = cartCore.recommendGroups(products, groupSettings);
+  const recommendation = recommendGroupsOrThrow(products, groupSettings);
   logProgress(options, `[그룹] 추천 주문 ${recommendation.groups.length || 0}개 계산 완료`);
   logProgress(options, `[배송비] 한 번에 주문 조회 중 (${products.length}종)`);
   const singleShipment = await quoteShipmentShipping(products, options, "한 번에 주문");
@@ -1589,7 +1617,7 @@ async function main() {
 
   if (options.mode === "plan-only") {
     products = productsFromInput(inputRows);
-    recommendation = cartCore.recommendGroups(products, groupSettings);
+    recommendation = recommendGroupsOrThrow(products, groupSettings);
     comparison = costCore.compareOrderStrategies(products, recommendation, costSettingsFromOptions(options, groupSettings));
   } else if (options.mode === "quote-api") {
     const quoteResult = await runQuoteApiMode(options, inputRows, groupSettings);
@@ -1635,6 +1663,8 @@ module.exports = {
   parseArgs,
   readInputRows,
   productsFromInput,
+  recommendGroupsOrThrow,
+  preflightInputRows,
   loadExchangeRateSettings,
   costSettingsFromOptions,
   buildReport,

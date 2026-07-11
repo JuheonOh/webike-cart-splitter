@@ -12,9 +12,22 @@
   if (!groupingApi) {
     throw new Error("WebikeCartGrouping 모듈을 불러오지 못했습니다.");
   }
+  const delimitedApi = root.WebikeDelimitedCore ||
+    (typeof require !== "undefined" ? require("./delimited-core.js") : null);
+  if (!delimitedApi) {
+    throw new Error("WebikeDelimitedCore 모듈을 불러오지 못했습니다.");
+  }
   const {
+    parseDelimitedRows,
+    normalizeHeader,
+    findColumn,
+  } = delimitedApi;
+  const {
+    GROUPING_LIMITS,
+    validateGroupingRequest,
     makeAtoms,
     twoGroupDp,
+    twoGroupDpResult,
     firstFitDecreasing,
     recommendGroups,
     aggregateGroup,
@@ -133,7 +146,7 @@
       limitUsd: positiveNumber(source.limitUsd, DEFAULT_SETTINGS.limitUsd),
       usdKrw: positiveNumber(source.usdKrw, DEFAULT_SETTINGS.usdKrw),
       jpyKrw: positiveNumber(source.jpyKrw, DEFAULT_SETTINGS.jpyKrw),
-      maxGroups: positiveInteger(source.maxGroups, DEFAULT_SETTINGS.maxGroups),
+      maxGroups: Math.min(positiveInteger(source.maxGroups, DEFAULT_SETTINGS.maxGroups), GROUPING_LIMITS.maxGroups),
       splitQuantity: typeof source.splitQuantity === "boolean" ? source.splitQuantity : DEFAULT_SETTINGS.splitQuantity,
     };
   }
@@ -184,6 +197,50 @@
         JPY: jpy,
       },
     };
+  }
+
+  function parseIsoDateParts(value) {
+    const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return null;
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const utc = Date.UTC(year, month - 1, day);
+    const date = new Date(utc);
+    if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+    return { year, month, day, utc };
+  }
+
+  function getExchangeRatePeriodStatus(period, nowMs = Date.now()) {
+    const match = String(period || "").trim().match(/^(\d{4}-\d{2}-\d{2})\s*~\s*(\d{4}-\d{2}-\d{2})$/);
+    const start = match ? parseIsoDateParts(match[1]) : null;
+    const end = match ? parseIsoDateParts(match[2]) : null;
+    if (!start || !end || start.utc > end.utc || !Number.isFinite(Number(nowMs))) {
+      return { state: "invalid", staleDays: null, daysUntilStart: null, startDate: "", endDate: "" };
+    }
+
+    const koreaNow = new Date(Number(nowMs) + (9 * 60 * 60 * 1000));
+    const today = Date.UTC(koreaNow.getUTCFullYear(), koreaNow.getUTCMonth(), koreaNow.getUTCDate());
+    const dayMs = 24 * 60 * 60 * 1000;
+    if (today < start.utc) {
+      return {
+        state: "upcoming",
+        staleDays: 0,
+        daysUntilStart: Math.ceil((start.utc - today) / dayMs),
+        startDate: match[1],
+        endDate: match[2],
+      };
+    }
+    if (today > end.utc) {
+      return {
+        state: "expired",
+        staleDays: Math.floor((today - end.utc) / dayMs),
+        daysUntilStart: 0,
+        startDate: match[1],
+        endDate: match[2],
+      };
+    }
+    return { state: "current", staleDays: 0, daysUntilStart: 0, startDate: match[1], endDate: match[2] };
   }
 
   function firstNumber(value) {
@@ -1123,6 +1180,11 @@
     const products = [];
     const errors = [];
 
+    if (!Array.isArray(rows)) return { products, errors: ["상품 목록 형식이 올바르지 않습니다."] };
+    if (rows.length > GROUPING_LIMITS.maxProducts) {
+      return { products, errors: [`상품은 최대 ${GROUPING_LIMITS.maxProducts}개까지 입력할 수 있습니다.`] };
+    }
+
     rows.forEach((row, rowIndex) => {
       const productUrl = cleanText(row.productUrl);
       const code = cleanText(row.code) || productUrl;
@@ -1135,8 +1197,11 @@
 
       if (!code) errors.push(`${rowIndex + 1}행 상품번호를 입력해 주세요.`);
       if (quantity < 1) errors.push(`${rowIndex + 1}행 수량은 1 이상이어야 합니다.`);
+      if (quantity > GROUPING_LIMITS.maxQuantityPerProduct) {
+        errors.push(`${rowIndex + 1}행 수량은 ${GROUPING_LIMITS.maxQuantityPerProduct} 이하여야 합니다.`);
+      }
       if (unitJpy <= 0) errors.push(`${rowIndex + 1}행 단가 JPY는 1 이상이어야 합니다.`);
-      if (!code || quantity < 1 || unitJpy <= 0) return;
+      if (!code || quantity < 1 || quantity > GROUPING_LIMITS.maxQuantityPerProduct || unitJpy <= 0) return;
 
       const product = {
         index: products.length,
@@ -1165,50 +1230,6 @@
       if (item.productUrl) row.productUrl = item.productUrl;
       return row;
     });
-  }
-
-  function parseDelimitedLine(line, delimiter) {
-    if (delimiter === "\t") return line.split("\t").map((cell) => cell.trim());
-
-    const cells = [];
-    let current = "";
-    let quoted = false;
-
-    for (let index = 0; index < line.length; index += 1) {
-      const char = line[index];
-      const next = line[index + 1];
-      if (char === '"' && quoted && next === '"') {
-        current += '"';
-        index += 1;
-      } else if (char === '"') {
-        quoted = !quoted;
-      } else if (char === delimiter && !quoted) {
-        cells.push(current.trim());
-        current = "";
-      } else {
-        current += char;
-      }
-    }
-
-    cells.push(current.trim());
-    return cells;
-  }
-
-  function parseDelimitedRows(text) {
-    const value = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
-    if (!value) return [];
-    const delimiter = value.includes("\t") ? "\t" : ",";
-    return value.split("\n")
-      .map((line) => parseDelimitedLine(line, delimiter))
-      .filter((row) => row.some((cell) => cleanText(cell)));
-  }
-
-  function normalizeHeader(text) {
-    return cleanText(text).toLowerCase().replace(/[\s_()\/-]/g, "");
-  }
-
-  function findColumn(headers, names) {
-    return headers.findIndex((header) => names.includes(header));
   }
 
   function detectPasteColumns(row) {
@@ -1243,6 +1264,7 @@
   }
 
   return {
+    GROUPING_LIMITS,
     DEFAULT_SETTINGS,
     EXCHANGE_RATE_SOURCE_URL,
     CART_ROW_SELECTORS,
@@ -1260,6 +1282,7 @@
     writeStoredSettings,
     hasStoredSettings,
     normalizeExchangeRateData,
+    getExchangeRatePeriodStatus,
     firstNumber,
     parseJpy,
     cleanText,
@@ -1289,8 +1312,10 @@
     normalizeManualProducts,
     manualRowsFromProducts,
     manualRowsFromPastedText,
+    validateGroupingRequest,
     makeAtoms,
     twoGroupDp,
+    twoGroupDpResult,
     firstFitDecreasing,
     recommendGroups,
     aggregateGroup,

@@ -48,13 +48,14 @@ function parseImportRate(lines, country, currencyCode) {
   for (let index = 0; index < lines.length; index += 1) {
     if (lines[index] !== country) continue;
 
-    const currencyIndex = lines
-      .slice(index + 1, index + 8)
-      .findIndex((line) => line.includes(`(${currencyCode})`));
+    const windowStart = Math.max(0, index - 6);
+    const nearbyLines = lines.slice(windowStart, index + 8);
+    const currencyPattern = new RegExp(`(?:^|\\()${currencyCode}(?:\\)|$)`, "i");
+    const relativeCurrencyIndex = nearbyLines.findIndex((line) => currencyPattern.test(line));
+    if (relativeCurrencyIndex === -1) continue;
 
-    if (currencyIndex === -1) continue;
-
-    const start = index + 1 + currencyIndex + 1;
+    const currencyIndex = windowStart + relativeCurrencyIndex;
+    const start = Math.max(index, currencyIndex) + 1;
     const numbers = lines
       .slice(start, start + 8)
       .map(parseNumber)

@@ -10,6 +10,7 @@ const uiApi = new Function("window", "document", `${uiRuntimeScript}
 return {
   buildWebikeCartScript,
   groupFingerprint,
+  renderSummary,
   renderGroups,
   renderProducts,
   readStoredDraft,
@@ -753,5 +754,95 @@ assert.strictEqual(api.normalizeExchangeRateData({
     JPY: 0,
   },
 }), null);
+
+assert.deepStrictEqual(
+  api.getExchangeRatePeriodStatus("2026-05-10 ~ 2026-05-16", Date.parse("2026-05-16T12:00:00+09:00")),
+  { state: "current", staleDays: 0, daysUntilStart: 0, startDate: "2026-05-10", endDate: "2026-05-16" },
+);
+assert.deepStrictEqual(
+  api.getExchangeRatePeriodStatus("2026-05-10 ~ 2026-05-16", Date.parse("2026-05-17T12:00:00+09:00")),
+  { state: "expired", staleDays: 1, daysUntilStart: 0, startDate: "2026-05-10", endDate: "2026-05-16" },
+);
+assert.deepStrictEqual(
+  api.getExchangeRatePeriodStatus("2026-05-10 ~ 2026-05-16", Date.parse("2026-05-09T12:00:00+09:00")),
+  { state: "upcoming", staleDays: 0, daysUntilStart: 1, startDate: "2026-05-10", endDate: "2026-05-16" },
+);
+assert.strictEqual(api.getExchangeRatePeriodStatus("2026-02-30 ~ 2026-03-02").state, "invalid");
+
+assert.deepStrictEqual(api.GROUPING_LIMITS, {
+  maxProducts: 500,
+  maxQuantityPerProduct: 1000,
+  maxAtoms: 10000,
+  maxGroups: 20,
+  maxExactDpStates: 100000,
+  maxExactDpTransitions: 2000000,
+});
+
+const excessiveQuantity = api.normalizeManualProducts([{
+  code: "LIMIT-001",
+  name: "Too many",
+  quantity: 1001,
+  unitJpy: 100,
+}]);
+assert.deepStrictEqual(excessiveQuantity.products, []);
+assert.ok(excessiveQuantity.errors[0].includes("1000 이하"));
+
+const productCountValidation = api.validateGroupingRequest(
+  Array.from({ length: 501 }, (_, index) => ({
+    index,
+    code: `LIMIT-${index}`,
+    name: `Limit ${index}`,
+    quantity: 1,
+    unitJpy: 100,
+    totalJpy: 100,
+  })),
+  { limitJpy: 10000, maxGroups: 8, splitQuantity: true },
+);
+assert.strictEqual(productCountValidation.reasonCode, "product_count_limit_exceeded");
+
+const atomLimitProducts = Array.from({ length: 11 }, (_, index) => ({
+  index,
+  code: `ATOM-${index}`,
+  name: `Atom ${index}`,
+  quantity: 1000,
+  unitJpy: 1,
+  totalJpy: 1000,
+}));
+assert.strictEqual(
+  api.validateGroupingRequest(atomLimitProducts, { limitJpy: 10000, maxGroups: 8, splitQuantity: true }).reasonCode,
+  "atom_count_limit_exceeded",
+);
+assert.strictEqual(
+  api.validateGroupingRequest(atomLimitProducts, { limitJpy: 10000, maxGroups: 8, splitQuantity: false }).valid,
+  true,
+);
+assert.strictEqual(
+  api.validateGroupingRequest(sampleProducts, { ...settings, maxGroups: 21 }).reasonCode,
+  "max_groups_limit_exceeded",
+);
+
+const budgetFallback = api.recommendGroups(sampleProducts, {
+  ...settings,
+  exactSearchOptions: { maxStates: 1, maxTransitions: 1 },
+});
+assert.strictEqual(budgetFallback.groups.length, 2);
+assert.deepStrictEqual(budgetFallback.warnings, ["exact_search_budget_exceeded"]);
+assert.ok(
+  uiApi.renderSummary(sampleProducts, budgetFallback, settings).includes("빠른 방식으로 계산"),
+  "exact search budget fallback should be visible to the user",
+);
+const cappedDp = api.twoGroupDpResult(api.makeAtoms(sampleProducts, true), settings.limitJpy, {
+  maxStates: 10,
+  maxTransitions: 100,
+});
+assert.strictEqual(cappedDp.budgetExceeded, true);
+assert.ok(cappedDp.stateCount <= 10);
+assert.ok(cappedDp.transitions <= 100);
+const transitionCappedDp = api.twoGroupDpResult(api.makeAtoms(sampleProducts, true), settings.limitJpy, {
+  maxStates: Number.MAX_SAFE_INTEGER,
+  maxTransitions: 1,
+});
+assert.strictEqual(transitionCappedDp.budgetExceeded, true);
+assert.ok(transitionCappedDp.transitions <= 1);
 
 console.log("cart_group_calculator tests passed");

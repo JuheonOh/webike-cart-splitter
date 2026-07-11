@@ -11,10 +11,18 @@ const EXCHANGE_RATE_DATA_URL = "data/exchange-rates.json";
 const WEBIKE_CART_SCRIPT_HOST = "www.japan-webike.kr";
 const DRAFT_STORAGE_KEY = "webike-cart-splitter-draft-v1";
 const DRAFT_VERSION = 1;
+const GROUPING_INPUT_ERROR_CODES = new Set([
+  "invalid_input",
+  "product_count_limit_exceeded",
+  "quantity_limit_exceeded",
+  "atom_count_limit_exceeded",
+  "max_groups_limit_exceeded",
+]);
 const {
   EXCHANGE_RATE_SOURCE_URL,
   toNumber,
   normalizeExchangeRateData,
+  getExchangeRatePeriodStatus,
   readStoredSettings,
   writeStoredSettings,
   hasStoredSettings,
@@ -36,10 +44,11 @@ function rateMoney(value) {
   });
 }
 
-function setExchangeRateSourceMessage(message) {
+function setExchangeRateSourceMessage(message, tone = "") {
   const sourceBox = $("#exchangeRateSource");
   if (!sourceBox) return;
 
+  sourceBox.classList.toggle("warn", tone === "warn");
   sourceBox.textContent = `${message} `;
   const link = document.createElement("a");
   link.href = EXCHANGE_RATE_SOURCE_URL;
@@ -53,8 +62,17 @@ function renderExchangeRateSource(data, applied) {
   const prefix = applied ? "자동환율 적용" : "자동환율 확인";
   const period = data.period ? `적용기간 ${data.period}, ` : "";
   const suffix = applied ? "" : " 저장된 설정이 있어 입력값은 유지했습니다.";
+  const freshness = getExchangeRatePeriodStatus(data.period);
+  const freshnessMessage = freshness.state === "expired"
+    ? ` 적용기간이 ${freshness.staleDays}일 지났습니다. 최신 고시환율을 직접 확인해 주세요.`
+    : freshness.state === "upcoming"
+      ? ` 아직 적용 전 환율입니다. 적용 시작일을 확인해 주세요.`
+      : freshness.state === "invalid"
+        ? " 적용기간 형식을 확인할 수 없습니다. 최신 고시환율을 직접 확인해 주세요."
+        : "";
   setExchangeRateSourceMessage(
-    `${prefix}: ${period}USD ${rateMoney(data.rates.USD)}원, JPY ${rateMoney(data.rates.JPY)}원.${suffix}`,
+    `${prefix}: ${period}USD ${rateMoney(data.rates.USD)}원, JPY ${rateMoney(data.rates.JPY)}원.${suffix}${freshnessMessage}`,
+    freshness.state === "current" ? "" : "warn",
   );
 }
 
@@ -65,7 +83,10 @@ function applyExchangeRatesToForm(data) {
 }
 
 async function loadExchangeRates({ applyToForm = false } = {}) {
-  if (typeof fetch !== "function" || window.location.protocol === "file:") return;
+  if (typeof fetch !== "function" || window.location.protocol === "file:") {
+    setExchangeRateSourceMessage("파일로 연 화면에서는 자동환율을 불러올 수 없습니다. 최신 고시환율을 직접 확인해 주세요.", "warn");
+    return;
+  }
 
   try {
     const response = await fetch(`${EXCHANGE_RATE_DATA_URL}?v=${Date.now()}`, { cache: "no-store" });
@@ -79,7 +100,7 @@ async function loadExchangeRates({ applyToForm = false } = {}) {
     renderExchangeRateSource(data, applyToForm);
   } catch {
     latestExchangeRateData = null;
-    setExchangeRateSourceMessage("자동환율을 불러오지 못했습니다. 현재 입력값을 사용합니다.");
+    setExchangeRateSourceMessage("자동환율을 불러오지 못했습니다. 현재 입력값을 사용합니다.", "warn");
   }
 }
 
@@ -95,11 +116,19 @@ function setExportEnabled(enabled) {
   $("#exportCsvZipButton").disabled = !(enabled && latestAnalysis?.recommendation.groups.length);
 }
 
+function publishCalculatorState(state) {
+  if (typeof window === "undefined" || typeof window.CustomEvent !== "function") return;
+  window.__webikeFeatureState = window.__webikeFeatureState || {};
+  window.__webikeFeatureState["webike:calculator-state"] = state;
+  window.dispatchEvent(new CustomEvent("webike:calculator-state", { detail: { state } }));
+}
+
 function resetExportData() {
   latestAnalysis = null;
   setExportEnabled(false);
   setGroupScriptButtonsEnabled(false, "다시 분석 필요");
   setProductEditDirtyNotice(false);
+  publishCalculatorState(getInputMode() === "manual" ? "manual" : "initial");
 }
 
 function markResultEditsDirty() {
@@ -107,6 +136,7 @@ function markResultEditsDirty() {
   setExportEnabled(false);
   setGroupScriptButtonsEnabled(false, "수정 반영 후 복사 가능");
   setProductEditDirtyNotice(true);
+  publishCalculatorState("dirty-disabled");
 }
 
 function downloadXlsx() {
@@ -305,6 +335,7 @@ function renderSummary(products, recommendation, settings) {
   const limitKrw = settings.limitUsd * settings.usdKrw;
   const statusText = recommendation.groups.length ? "가능" : "확인 필요";
   const statusClass = recommendation.groups.length ? "ok" : "warn";
+  const exactSearchFallback = recommendation.warnings?.includes("exact_search_budget_exceeded");
 
   return `
     <section class="summary" aria-label="요약">
@@ -313,6 +344,11 @@ function renderSummary(products, recommendation, settings) {
       <div class="metric"><span>150달러 한도</span><b>${money(Math.floor(settings.limitJpy))} JPY</b><small>${money(limitKrw)}원</small></div>
       <div class="metric"><span>주문 분할</span><b class="${statusClass}">${statusText}</b><small>${recommendation.groups.length || "-"}개 주문</small></div>
     </section>
+    ${exactSearchFallback ? `
+      <p class="calculation-warning warn" role="status">
+        정확 탐색 한도를 넘어 빠른 방식으로 계산했습니다. 더 적은 주문 조합이 있을 수 있습니다.
+      </p>
+    ` : ""}
   `;
 }
 
@@ -576,7 +612,8 @@ function renderGroups(recommendation, settings, progress = {}) {
   }
 
   if (!recommendation.groups.length) {
-    return `<section class="panel"><h2>그룹 추천</h2><p class="warn">지정한 최대 주문 수 안에서 한도 이하 그룹을 찾지 못했습니다.</p></section>`;
+    const message = recommendation.message || "지정한 최대 주문 수 안에서 한도 이하 그룹을 찾지 못했습니다.";
+    return `<section class="panel"><h2>그룹 추천</h2><p class="warn">${escapeHtml(message)}</p></section>`;
   }
 
   const cards = recommendation.groups.map((group, index) => {
@@ -651,7 +688,7 @@ function getSettings() {
   const limitUsd = toNumber($("#limitUsd").value);
   const usdKrw = toNumber($("#usdKrw").value);
   const jpyKrw = toNumber($("#jpyKrw").value);
-  const maxGroups = Math.max(1, Math.round(toNumber($("#maxGroups").value)));
+  const maxGroups = Math.round(toNumber($("#maxGroups").value));
   const exchangeRateDataMatches = latestExchangeRateData &&
     latestExchangeRateData.rates.USD === usdKrw &&
     latestExchangeRateData.rates.JPY === jpyKrw;
@@ -818,6 +855,7 @@ function setInputMode(mode) {
   $("#htmlInputPanel").hidden = mode !== "html";
   $("#manualInputPanel").hidden = mode !== "manual";
   clearError();
+  publishCalculatorState(mode === "manual" ? "manual" : "initial");
 }
 
 function showError(message) {
@@ -977,11 +1015,13 @@ async function copyTextToClipboard(text) {
   fallback.style.top = "-9999px";
   fallback.style.left = "-9999px";
   document.body.appendChild(fallback);
-  fallback.focus({ preventScroll: true });
-  fallback.select();
-  const copied = document.execCommand("copy");
-  fallback.remove();
-  return copied;
+  try {
+    fallback.focus({ preventScroll: true });
+    fallback.select();
+    return document.execCommand("copy");
+  } finally {
+    fallback.remove();
+  }
 }
 
 async function copyGroupWebikeCartScript(button) {
@@ -1046,6 +1086,13 @@ function updateEditedProductSubtotal(row) {
 
 function renderAnalysis(products, settings) {
   const recommendation = recommendGroups(products, settings);
+  if (GROUPING_INPUT_ERROR_CODES.has(recommendation.reasonCode)) {
+    latestAnalysis = null;
+    setExportEnabled(false);
+    showError(recommendation.message || "상품 또는 주문 설정을 확인해 주세요.");
+    publishCalculatorState(getInputMode() === "manual" ? "manual" : "initial");
+    return false;
+  }
   latestAnalysis = { products, recommendation, settings };
   setExportEnabled(true);
   $("#resultArea").innerHTML = [
@@ -1054,6 +1101,8 @@ function renderAnalysis(products, settings) {
     renderProducts(products),
   ].join("");
   saveDraftFromPage();
+  publishCalculatorState("analyzed");
+  return true;
 }
 
 function applyProductEdits() {

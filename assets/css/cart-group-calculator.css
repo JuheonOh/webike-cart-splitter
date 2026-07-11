@@ -375,7 +375,15 @@ tr:last-child td { border-bottom: 0; }
 .source {
   margin-top: 12px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 14px;
+}
+.calculation-warning {
+  margin: -4px 0 16px;
+  font-size: 14px;
+}
+.source.warn {
+  color: var(--warn);
+  font-weight: 700;
 }
 @keyframes manualRowImported {
   0% { background: #e7f0fa; }

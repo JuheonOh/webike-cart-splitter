@@ -236,6 +236,68 @@ assert.deepStrictEqual(inputRows, [
 ]);
 fs.unlinkSync(inputPath);
 
+const excessiveQuantityPath = path.join(os.tmpdir(), `webike-quote-limit-${Date.now()}.csv`);
+fs.writeFileSync(excessiveQuantityPath, [
+  "part_number,quantity,name,unit_jpy",
+  "LIMIT-001,1001,Too many,100",
+].join("\n"));
+assert.throws(
+  () => quoteCli.readInputRows(excessiveQuantityPath),
+  /1000 이하여야/,
+);
+fs.unlinkSync(excessiveQuantityPath);
+
+assert.throws(
+  () => quoteCli.loadExchangeRateSettings({ maxGroups: 21, splitQuantity: true }),
+  /--max-groups는 1~20 사이의 정수/,
+);
+assert.throws(
+  () => quoteCli.loadExchangeRateSettings({ maxGroups: 0, splitQuantity: true }),
+  /--max-groups는 1~20 사이의 정수/,
+);
+assert.throws(
+  () => quoteCli.loadExchangeRateSettings({ maxGroups: 8, splitQuantity: true, usdKrw: 0, jpyKrw: 10 }),
+  /--usd-krw는 0보다 큰 숫자/,
+);
+
+const originalReadFileSync = fs.readFileSync;
+fs.readFileSync = (filePath, ...args) => (
+  path.basename(String(filePath)) === "exchange-rates.json"
+    ? "{ invalid json"
+    : originalReadFileSync(filePath, ...args)
+);
+try {
+  assert.throws(
+    () => quoteCli.loadExchangeRateSettings({ maxGroups: 8, splitQuantity: true }),
+    /환율 데이터 파일을 읽을 수 없습니다/,
+  );
+  assert.doesNotThrow(() => quoteCli.loadExchangeRateSettings({
+    maxGroups: 8,
+    splitQuantity: true,
+    usdKrw: 1500,
+    jpyKrw: 10,
+  }));
+} finally {
+  fs.readFileSync = originalReadFileSync;
+}
+
+const excessiveAtomProducts = Array.from({ length: 11 }, (_, index) => makeProduct(index, `ATOM-${index}`, 1000, 1));
+assert.throws(
+  () => quoteCli.recommendGroupsOrThrow(excessiveAtomProducts, makeSettings()),
+  /계산 단위는 최대 10000개/,
+);
+const excessiveAtomRows = excessiveAtomProducts.map((item) => ({
+  partNumber: item.code,
+  quantity: item.quantity,
+  name: item.name,
+  unitJpy: item.unitJpy,
+}));
+assert.throws(
+  () => quoteCli.preflightInputRows(excessiveAtomRows, makeSettings()),
+  /계산 단위는 최대 10000개/,
+);
+assert.doesNotThrow(() => quoteCli.preflightInputRows(excessiveAtomRows, makeSettings({ splitQuantity: false })));
+
 const productUrlInputPath = path.join(os.tmpdir(), `webike-quote-url-${Date.now()}.csv`);
 fs.writeFileSync(productUrlInputPath, [
   "product_url,quantity,name",
@@ -379,6 +441,22 @@ assert(fs.readFileSync(cartScriptPath, "utf8").includes("Webike Cart Splitter ge
 fs.unlinkSync(cartScriptPath);
 
 (async () => {
+  let preflightFetchCalled = false;
+  await assert.rejects(
+    quoteCli.runQuoteApiMode({
+      fetchText: async () => {
+        preflightFetchCalled = true;
+        return productDetailFixture;
+      },
+    }, excessiveAtomRows, makeSettings()),
+    /계산 단위는 최대 10000개/,
+  );
+  assert.strictEqual(preflightFetchCalled, false);
+  await assert.rejects(
+    quoteCli.runCartMode({}, excessiveAtomRows, makeSettings()),
+    /계산 단위는 최대 10000개/,
+  );
+
   const quoteProgressLogs = [];
   const quoteApiResult = await quoteCli.runQuoteApiMode({
     logProgress: true,
