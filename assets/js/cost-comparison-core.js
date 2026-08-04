@@ -248,12 +248,12 @@
       ])
       : unavailableStrategy("single_order", "한 번에 주문", "단일 주문 배송비 실측값이 없습니다.");
     const split = splitInputs.length
-      ? summarizeStrategy("split_tax_free", "150 USD 이하 분할 주문", splitInputs.map((shipment, index) => (
+      ? summarizeStrategy("split_tax_free", "분할 주문 (배송비 실측)", splitInputs.map((shipment, index) => (
         buildShipment(normalizeMeasuredShipment(shipment, `주문 ${index + 1}`), settings)
       )))
       : unavailableStrategy(
         "split_tax_free",
-        "150 USD 이하 분할 주문",
+        "분할 주문 (배송비 실측)",
         measurement.splitUnavailableReason || "분할 주문 배송비 실측값이 없습니다.",
       );
 

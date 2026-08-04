@@ -1379,6 +1379,8 @@ function buildQuoteScript() {
     });
   }
 
+  const shippingQuoteCache = new Map();
+
   function selectShippingCandidate(candidates) {
     const serviceCode = cleanText(settings.shippingService).toUpperCase();
     if (!serviceCode) return candidates[0];
@@ -1387,27 +1389,46 @@ function buildQuoteScript() {
     return selected;
   }
 
-  async function quoteShipment(products, label) {
+  async function quoteShipment(products, label, taxableExpected) {
     const request = buildShippingRequest(products);
-    const candidates = normalizeShippingResponse(await fetchJson(request.url, { credentials: "omit" }));
-    const selected = selectShippingCandidate(candidates);
+    const serviceCode = cleanText(settings.shippingService).toUpperCase();
+    const cacheKey = request.url + "|" + serviceCode;
+    let cached = shippingQuoteCache.get(cacheKey);
+    if (!cached) {
+      const candidates = normalizeShippingResponse(await fetchJson(request.url, { credentials: "omit" }));
+      const selected = selectShippingCandidate(candidates);
+      cached = {
+        shippingJpy: selected.costJpy,
+        shippingServiceCode: selected.serviceCode,
+        shippingType: selected.type,
+        shippingCandidates: candidates,
+      };
+      shippingQuoteCache.set(cacheKey, cached);
+    }
     return {
       label: label,
+      taxableExpected: Boolean(taxableExpected),
       productJpy: request.metrics.amountJpy,
-      shippingJpy: selected.costJpy,
-      shippingServiceCode: selected.serviceCode,
-      shippingType: selected.type,
+      ...cached,
       products: products.map(function (item) {
         return { index: item.index, code: item.code, name: item.name, quantity: item.quantity, unitJpy: item.unitJpy, totalJpy: item.totalJpy, productId: item.productId, productUrl: item.productUrl };
       }),
       request: request,
-      shippingCandidates: candidates
     };
   }
 
+  function recommendationOrderGroups(recommendation) {
+    return [
+      ...(recommendation.taxableGroups || []).map(function (group) { return { group: group, taxable: true }; }),
+      ...(recommendation.groups || []).map(function (group) { return { group: group, taxable: false }; }),
+    ];
+  }
+
   function splitUnavailableReason(recommendation) {
-    if (recommendation.taxableGroups && recommendation.taxableGroups.length) return "단일 계산 단위가 면세 한도를 초과했습니다.";
-    if (recommendation.groups && recommendation.groups.length > 1) return "";
+    if (recommendation.complete === false) return "지정한 최대 주문 수 안에서 모든 그룹을 만들지 못했습니다.";
+    const orderGroupCount = recommendationOrderGroups(recommendation).length;
+    if (orderGroupCount > 1) return "";
+    if (orderGroupCount === 1 && recommendation.taxableGroups?.length) return "과세 예상 주문 1건으로 계산되어 분할 배송비 비교가 필요하지 않습니다.";
     if (recommendation.groups && recommendation.groups.length === 1) return "전체 상품가가 면세 기준 안이라 분할 주문이 필요하지 않습니다.";
     if (recommendation.oversize && recommendation.oversize.length) return "단일 계산 단위가 면세 한도를 초과했습니다.";
     return "지정한 최대 주문 수 안에서 분할 그룹을 찾지 못했습니다.";
@@ -1418,15 +1439,24 @@ function buildQuoteScript() {
       totalJpy: recommendation.totalJpy,
       groupCount: recommendation.groups.length,
       oversizeCount: recommendation.oversize.length,
-      taxableGroupCount: (recommendation.taxableGroups || []).length
+      taxableGroupCount: (recommendation.taxableGroups || []).length,
+      orderGroupCount: recommendationOrderGroups(recommendation).length,
     };
   }
 
   async function quoteSplitStrategy(products, recommendation, labelPrefix) {
     const splitShipments = [];
-    if (!recommendation.taxableGroups?.length && recommendation.groups.length > 1) {
-      for (const [index, group] of recommendation.groups.entries()) {
-        splitShipments.push(await quoteShipment(productsFromGroup(group, products), labelPrefix + " " + (index + 1)));
+    const orderGroups = recommendationOrderGroups(recommendation);
+    if (recommendation.complete !== false && orderGroups.length > 1) {
+      for (const [index, orderGroup] of orderGroups.entries()) {
+        const label = orderGroup.taxable
+          ? "과세 예상 주문 " + (index + 1)
+          : labelPrefix + " " + (index + 1);
+        splitShipments.push(await quoteShipment(
+          productsFromGroup(orderGroup.group, products),
+          label,
+          orderGroup.taxable,
+        ));
       }
     }
     return {
@@ -1711,6 +1741,11 @@ function splitMeasuredStrategy(measurement, code, label, settings) {
   return measuredStrategy(code, label, shipments, settings);
 }
 
+function measuredStrategyLabel(measurement, code, defaultLabel) {
+  const taxableGroupCount = Number(measurement?.strategies?.[code]?.recommendationSummary?.taxableGroupCount || 0);
+  return taxableGroupCount > 0 ? `${defaultLabel} (과세 예상 포함)` : defaultLabel;
+}
+
 function compareWizardStrategies(measurement, settings) {
   const single = measurement?.singleShipment
     ? measuredStrategy("single_order", "한 번에 주문", [measurement.singleShipment], settings)
@@ -1718,13 +1753,13 @@ function compareWizardStrategies(measurement, settings) {
   const splitQuantity = splitMeasuredStrategy(
     measurement,
     "split_quantity",
-    "분할 주문 - 수량 분할 허용",
+    measuredStrategyLabel(measurement, "split_quantity", "분할 주문 - 수량 분할 허용"),
     settings,
   );
   const rowUnit = splitMeasuredStrategy(
     measurement,
     "row_unit",
-    "분할 주문 - 상품 행 단위 유지",
+    measuredStrategyLabel(measurement, "row_unit", "분할 주문 - 상품 행 단위 유지"),
     settings,
   );
   const strategies = [single, splitQuantity, rowUnit];
@@ -1794,6 +1829,9 @@ function preferredCartStrategyCode() {
 function cartGroupsForStrategy(code) {
   if (code === "single_order") return singleOrderGroups();
   if (code === "taxable_first") return orderGroupsForRecommendation(state.recommendations?.split_quantity);
+  if (code === "split_quantity" || code === "row_unit") {
+    return orderGroupsForRecommendation(state.recommendations?.[code]);
+  }
   return state.recommendations?.[code]?.groups || [];
 }
 
@@ -1832,6 +1870,24 @@ function renderComparison() {
         </div>
         <p style="margin-top: 12px;"><b>총액 ${money(strategy.totals.totalKrw)}원</b></p>
         <p class="subtle">주문 ${money(strategy.shipmentCount)}건 · 상품 ${money(strategy.totals.productJpy)} JPY · 배송비 ${money(strategy.totals.shippingJpy)} JPY</p>
+        ${strategy.shipments.length > 1 ? `
+          <div class="table-wrap" style="margin-top: 12px;">
+            <table>
+              <thead><tr><th>주문</th><th class="num">상품가</th><th class="num">배송비</th><th class="num">예상 세금</th><th class="num">총액</th></tr></thead>
+              <tbody>
+                ${strategy.shipments.map((shipment) => `
+                  <tr>
+                    <td>${escapeHtml(shipment.label || "주문")}${shipment.taxable ? " <span class=\"badge warn\">과세 예상</span>" : ""}</td>
+                    <td class="num">${money(shipment.productJpy)} JPY</td>
+                    <td class="num">${money(shipment.shippingJpy)} JPY</td>
+                    <td class="num">${money(shipment.taxKrw)}원</td>
+                    <td class="num">${money(shipment.totalKrw)}원</td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
+          </div>
+        ` : ""}
       </article>
     `;
   }

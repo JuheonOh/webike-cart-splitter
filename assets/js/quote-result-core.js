@@ -377,11 +377,14 @@
         return;
       }
       const summary = measured.recommendationSummary;
+      const taxableGroupCount = recommendation.taxableGroups?.length || 0;
+      const orderGroupCount = taxableGroupCount + recommendation.groups.length;
       if (!summary || summary.totalJpy !== recommendation.totalJpy ||
         summary.groupCount !== recommendation.groups.length ||
         summary.oversizeCount !== recommendation.oversize.length ||
         (summary.taxableGroupCount !== undefined &&
-          summary.taxableGroupCount !== (recommendation.taxableGroups?.length || 0))) {
+          summary.taxableGroupCount !== taxableGroupCount) ||
+        (summary.orderGroupCount !== undefined && summary.orderGroupCount !== orderGroupCount)) {
         errors.push(`${code} 추천 요약이 현재 계산 결과와 일치하지 않습니다.`);
       }
       if (recommendation.complete === false ||
@@ -389,10 +392,17 @@
         errors.push(`${code} 추천 그룹이 전체 상품 수량을 포함하지 않습니다.`);
       }
 
-      const expectedGroups = recommendation.taxableGroups?.length
+      const usesCurrentShippingMeasurement = summary?.orderGroupCount !== undefined;
+      const orderedRecommendationGroups = usesCurrentShippingMeasurement
+        ? [
+          ...(recommendation.taxableGroups || []),
+          ...(recommendation.groups || []),
+        ]
+        : recommendation.taxableGroups?.length
         ? []
-        : recommendation.groups.length > 1
-        ? recommendation.groups.map((group) => ({ products: productsFromRecommendationGroup(group, productByIndex) }))
+        : recommendation.groups;
+      const expectedGroups = orderedRecommendationGroups.length > 1
+        ? orderedRecommendationGroups.map((group) => ({ products: productsFromRecommendationGroup(group, productByIndex) }))
         : [];
       const measuredGroups = Array.isArray(measured.splitShipments) ? measured.splitShipments : [];
       if (shipmentSetSignature(expectedGroups) !== shipmentSetSignature(measuredGroups)) {

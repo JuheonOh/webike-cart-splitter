@@ -52,6 +52,7 @@ function strategyMeasurement(groups, recommendation) {
       groupCount: recommendation.groups.length,
       oversizeCount: recommendation.oversize.length,
       taxableGroupCount: recommendation.taxableGroups.length,
+      orderGroupCount: recommendation.taxableGroups.length + recommendation.groups.length,
     },
     splitShipments: groups,
     splitUnavailableReason: "",
@@ -113,8 +114,14 @@ const mixedTaxableRecommendations = {
 };
 const mixedTaxableMeasurement = {
   strategies: {
-    split_quantity: strategyMeasurement([], mixedTaxableRecommendations.split_quantity),
-    row_unit: strategyMeasurement([], mixedTaxableRecommendations.row_unit),
+    split_quantity: strategyMeasurement([
+      shipment("과세 예상 주문 1", [mixedTaxableProducts[0]], 1800),
+      shipment("분할 주문 2", [mixedTaxableProducts[1]], 800),
+    ], mixedTaxableRecommendations.split_quantity),
+    row_unit: strategyMeasurement([
+      shipment("과세 예상 주문 1", [mixedTaxableProducts[0]], 1800),
+      shipment("분할 주문 2", [mixedTaxableProducts[1]], 800),
+    ], mixedTaxableRecommendations.row_unit),
   },
 };
 assert.deepStrictEqual(

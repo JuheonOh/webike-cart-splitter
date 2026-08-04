@@ -256,10 +256,10 @@ async function testWizardStepGating(page, baseUrl) {
   assert.ok(await page.$eval("#inputPreview", (box) => box.textContent.includes("https://example.com/item/E2E-001")));
   await page.waitForSelector('[data-production-component="wizard-state"][data-state="script"]');
   assert.strictEqual(await page.$eval('[data-step-target="3"]', (button) => button.disabled), false);
-  assert.strictEqual(await page.evaluate(() => {
-    new Function(buildQuoteScript());
-    return true;
-  }), true);
+  const generatedQuoteScript = await page.evaluate(() => buildQuoteScript());
+  assert.doesNotThrow(() => new Function(generatedQuoteScript));
+  assert.ok(generatedQuoteScript.includes("recommendationOrderGroups"));
+  assert.ok(generatedQuoteScript.includes("orderGroupCount"));
   await page.fill("#maxGroups", "21");
   await page.dispatchEvent("#maxGroups", "change");
   assert.strictEqual(await page.$eval("#copyQuoteScriptButton", (button) => button.disabled), true);
@@ -304,12 +304,12 @@ async function testWizardStepGating(page, baseUrl) {
       },
       strategies: {
         split_quantity: {
-          recommendationSummary: { totalJpy: 3000, groupCount: 1, oversizeCount: 0 },
+          recommendationSummary: { totalJpy: 3000, groupCount: 1, oversizeCount: 0, taxableGroupCount: 0, orderGroupCount: 1 },
           splitShipments: [],
           splitUnavailableReason: "전체 상품가가 면세 기준 안이라 분할 주문이 필요하지 않습니다.",
         },
         row_unit: {
-          recommendationSummary: { totalJpy: 3000, groupCount: 1, oversizeCount: 0 },
+          recommendationSummary: { totalJpy: 3000, groupCount: 1, oversizeCount: 0, taxableGroupCount: 0, orderGroupCount: 1 },
           splitShipments: [],
           splitUnavailableReason: "전체 상품가가 면세 기준 안이라 분할 주문이 필요하지 않습니다.",
         },
@@ -447,6 +447,7 @@ async function testWizardTaxableFirstPlan(page, baseUrl) {
     groupCount: 1,
     oversizeCount: 1,
     taxableGroupCount: 1,
+    orderGroupCount: 2,
   };
   const quoteResult = {
     source: "webike-cart-splitter-wizard",
@@ -464,13 +465,39 @@ async function testWizardTaxableFirstPlan(page, baseUrl) {
       strategies: {
         split_quantity: {
           recommendationSummary,
-          splitShipments: [],
-          splitUnavailableReason: "단일 계산 단위가 면세 한도를 초과했습니다.",
+          splitShipments: [
+            {
+              label: "과세 예상 주문 1",
+              productJpy: 30000,
+              shippingJpy: 1800,
+              products: [quoteProducts[0]],
+            },
+            {
+              label: "수량 분할 주문 2",
+              productJpy: 1000,
+              shippingJpy: 800,
+              products: [quoteProducts[1]],
+            },
+          ],
+          splitUnavailableReason: "",
         },
         row_unit: {
           recommendationSummary,
-          splitShipments: [],
-          splitUnavailableReason: "단일 계산 단위가 면세 한도를 초과했습니다.",
+          splitShipments: [
+            {
+              label: "과세 예상 주문 1",
+              productJpy: 30000,
+              shippingJpy: 1800,
+              products: [quoteProducts[0]],
+            },
+            {
+              label: "행 단위 주문 2",
+              productJpy: 1000,
+              shippingJpy: 800,
+              products: [quoteProducts[1]],
+            },
+          ],
+          splitUnavailableReason: "",
         },
       },
     },
@@ -483,6 +510,9 @@ async function testWizardTaxableFirstPlan(page, baseUrl) {
   await page.click("#goComparisonButton");
   await page.waitForSelector("#goCartScriptsButton");
   assert.ok(await page.$eval("#comparisonArea", (element) => element.textContent.includes("과세 예상 우선 주문")));
+  assert.ok(await page.$eval("#comparisonArea", (element) => element.textContent.includes("과세 예상 포함")));
+  assert.ok(await page.$eval("#comparisonArea", (element) => element.textContent.includes("과세 예상 주문 1")));
+  assert.ok(await page.$eval("#comparisonArea", (element) => element.textContent.includes("1,800 JPY")));
   await page.click("#goCartScriptsButton");
   await page.waitForSelector('[data-production-component="wizard-state"][data-state="cart-group"]');
   const cartGroupTexts = await page.$$eval(".group-box", (boxes) => boxes.map((box) => box.textContent));

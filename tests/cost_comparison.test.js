@@ -107,6 +107,36 @@ assert.strictEqual(measuredCheaper.strategies.find((strategy) => strategy.code =
 assert.strictEqual(measuredCheaper.cheapestCode, "split_tax_free");
 assert.strictEqual(measuredCheaper.differenceKrw, 62800);
 
+const measuredTaxableSplit = costCore.compareMeasuredOrderStrategies({
+  singleShipment: {
+    label: "한 번에 주문",
+    productJpy: 40000,
+    shippingJpy: 3200,
+  },
+  splitShipments: [
+    {
+      label: "과세 예상 주문 1",
+      productJpy: 30000,
+      shippingJpy: 1800,
+    },
+    {
+      label: "면세 주문 2",
+      productJpy: 10000,
+      shippingJpy: 800,
+    },
+  ],
+}, {
+  ...makeSettings(),
+  importDutyRate: 0.08,
+  vatRate: 0.1,
+});
+const measuredTaxableSplitStrategy = measuredTaxableSplit.strategies.find((strategy) => strategy.code === "split_tax_free");
+assert.strictEqual(measuredTaxableSplitStrategy.available, true);
+assert.strictEqual(measuredTaxableSplitStrategy.totals.shippingJpy, 2600);
+assert.strictEqual(measuredTaxableSplitStrategy.shipments[0].taxable, true);
+assert.strictEqual(measuredTaxableSplitStrategy.shipments[1].taxable, false);
+assert.ok(measuredTaxableSplitStrategy.shipments[0].taxKrw > 0);
+
 const measuredNoSplit = costCore.compareMeasuredOrderStrategies({
   singleShipment: {
     label: "한 번에 주문",
