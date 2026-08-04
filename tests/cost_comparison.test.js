@@ -129,4 +129,16 @@ const unavailableSplit = costCore.compareOrderStrategies(oversizeProducts, overs
 assert.strictEqual(unavailableSplit.available, false);
 assert.strictEqual(unavailableSplit.reason, "단일 계산 단위가 면세 한도를 초과했습니다.");
 
+const mixedOversizeProducts = [
+  makeProduct(0, "BIG-002", 1, 30000),
+  makeProduct(1, "SMALL-002", 1, 10000),
+];
+const mixedOversizeRecommendation = cartCore.recommendGroups(mixedOversizeProducts, makeSettings());
+const mixedOversizeSplit = costCore.compareOrderStrategies(mixedOversizeProducts, mixedOversizeRecommendation, makeSettings())
+  .strategies.find((strategy) => strategy.code === "split_tax_free");
+assert.strictEqual(mixedOversizeRecommendation.groups.length, 1);
+assert.strictEqual(mixedOversizeRecommendation.taxableGroups.length, 1);
+assert.strictEqual(mixedOversizeSplit.available, false, "taxable groups must not be mislabeled as tax-free split orders");
+assert.strictEqual(mixedOversizeSplit.reason, "단일 계산 단위가 면세 한도를 초과했습니다.");
+
 console.log("cost comparison tests passed");

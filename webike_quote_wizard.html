@@ -1257,22 +1257,64 @@ function buildQuoteScript() {
     return groups.filter(function (group) { return group.length > 0; });
   }
 
+  function groupAtomsByProduct(atoms) {
+    const groups = new Map();
+    atoms.forEach(function (atom) {
+      const key = atom.productIndex + ":" + atom.code;
+      const group = groups.get(key) || [];
+      group.push(atom);
+      groups.set(key, group);
+    });
+    return Array.from(groups.values());
+  }
+
+  function recommendAtomGroups(atoms, groupSettings) {
+    if (!atoms.length) return { groups: [], reasonCode: "", warnings: [] };
+    const totalJpy = atoms.reduce(function (sum, item) { return sum + item.totalJpy; }, 0);
+    if (!Number.isInteger(groupSettings.maxGroups) || groupSettings.maxGroups < 1) {
+      return { groups: [], reasonCode: "max_groups_too_small", warnings: [] };
+    }
+    const minimumGroups = Math.max(1, Math.ceil(totalJpy / groupSettings.limitJpy));
+    if (minimumGroups === 1) return { groups: [atoms], reasonCode: "single_group", warnings: [] };
+    if (minimumGroups > groupSettings.maxGroups) {
+      return { groups: [], reasonCode: "max_groups_too_small", warnings: [] };
+    }
+    if (minimumGroups === 2) {
+      const exactTwoGroups = twoGroupDp(atoms, groupSettings.limitJpy);
+      if (exactTwoGroups) return { groups: exactTwoGroups, reasonCode: "grouped", warnings: [] };
+    }
+    for (let count = minimumGroups; count <= groupSettings.maxGroups; count += 1) {
+      const groups = firstFitDecreasing(atoms, count, groupSettings.limitJpy);
+      if (groups) return { groups: groups, reasonCode: "grouped", warnings: [] };
+    }
+    return { groups: [], reasonCode: "grouping_not_found", warnings: [] };
+  }
+
   function recommendGroups(products, groupSettings) {
     const atoms = makeAtoms(products, groupSettings.splitQuantity);
     const totalJpy = atoms.reduce(function (sum, item) { return sum + item.totalJpy; }, 0);
     const oversize = atoms.filter(function (item) { return item.totalJpy > groupSettings.limitJpy; });
-    if (oversize.length) return { totalJpy: totalJpy, groups: [], oversize: oversize, atoms: atoms };
-    const minimumGroups = Math.max(1, Math.ceil(totalJpy / groupSettings.limitJpy));
-    if (minimumGroups === 1) return { totalJpy: totalJpy, groups: [atoms], oversize: [], atoms: atoms };
-    if (minimumGroups === 2) {
-      const exactTwoGroups = twoGroupDp(atoms, groupSettings.limitJpy);
-      if (exactTwoGroups) return { totalJpy: totalJpy, groups: exactTwoGroups, oversize: [], atoms: atoms };
+    if (oversize.length) {
+      const taxableGroups = groupAtomsByProduct(oversize);
+      const groupableAtoms = atoms.filter(function (item) { return item.totalJpy <= groupSettings.limitJpy; });
+      const groupableResult = recommendAtomGroups(groupableAtoms, Object.assign({}, groupSettings, {
+        maxGroups: groupSettings.maxGroups - taxableGroups.length
+      }));
+      const assignedAtomCount = taxableGroups.reduce(function (sum, group) { return sum + group.length; }, 0) +
+        groupableResult.groups.reduce(function (sum, group) { return sum + group.length; }, 0);
+      const complete = assignedAtomCount === atoms.length &&
+        taxableGroups.length + groupableResult.groups.length <= groupSettings.maxGroups;
+      return {
+        totalJpy: totalJpy,
+        groups: groupableResult.groups,
+        taxableGroups: taxableGroups,
+        oversize: oversize,
+        atoms: atoms,
+        complete: complete
+      };
     }
-    for (let count = minimumGroups; count <= groupSettings.maxGroups; count += 1) {
-      const groups = firstFitDecreasing(atoms, count, groupSettings.limitJpy);
-      if (groups) return { totalJpy: totalJpy, groups: groups, oversize: [], atoms: atoms };
-    }
-    return { totalJpy: totalJpy, groups: [], oversize: [], atoms: atoms };
+    const grouped = recommendAtomGroups(atoms, groupSettings);
+    return { totalJpy: totalJpy, groups: grouped.groups, taxableGroups: [], oversize: [], atoms: atoms, complete: true };
   }
 
   function productsFromGroup(group, products) {
@@ -1364,6 +1406,7 @@ function buildQuoteScript() {
   }
 
   function splitUnavailableReason(recommendation) {
+    if (recommendation.taxableGroups && recommendation.taxableGroups.length) return "단일 계산 단위가 면세 한도를 초과했습니다.";
     if (recommendation.groups && recommendation.groups.length > 1) return "";
     if (recommendation.groups && recommendation.groups.length === 1) return "전체 상품가가 면세 기준 안이라 분할 주문이 필요하지 않습니다.";
     if (recommendation.oversize && recommendation.oversize.length) return "단일 계산 단위가 면세 한도를 초과했습니다.";
@@ -1374,13 +1417,14 @@ function buildQuoteScript() {
     return {
       totalJpy: recommendation.totalJpy,
       groupCount: recommendation.groups.length,
-      oversizeCount: recommendation.oversize.length
+      oversizeCount: recommendation.oversize.length,
+      taxableGroupCount: (recommendation.taxableGroups || []).length
     };
   }
 
   async function quoteSplitStrategy(products, recommendation, labelPrefix) {
     const splitShipments = [];
-    if (recommendation.groups.length > 1) {
+    if (!recommendation.taxableGroups?.length && recommendation.groups.length > 1) {
       for (const [index, group] of recommendation.groups.entries()) {
         splitShipments.push(await quoteShipment(productsFromGroup(group, products), labelPrefix + " " + (index + 1)));
       }
@@ -1705,6 +1749,19 @@ function buildRecommendations(products, settings) {
   };
 }
 
+function orderGroupsForRecommendation(recommendation) {
+  if (recommendation?.complete === false) return [];
+  return [
+    ...(recommendation?.taxableGroups || []),
+    ...(recommendation?.groups || []),
+  ];
+}
+
+function hasTaxableFirstPlan() {
+  const recommendation = state.recommendations?.split_quantity;
+  return Boolean(recommendation?.taxableGroups?.length && recommendation.complete !== false);
+}
+
 function singleOrderGroups() {
   if (!state.products.length) return [];
   return [state.products.map((product) => ({
@@ -1723,17 +1780,20 @@ function cartStrategyLabel(code) {
     single_order: "한 번에 주문",
     split_quantity: "분할 주문 - 수량 분할 허용",
     row_unit: "분할 주문 - 상품 행 단위 유지",
+    taxable_first: "과세 예상 우선 주문",
   }[code] || code;
 }
 
 function preferredCartStrategyCode() {
   if (state.selectedCartStrategy) return state.selectedCartStrategy;
+  if (hasTaxableFirstPlan()) return "taxable_first";
   if (state.comparison?.cheapestCode) return state.comparison.cheapestCode;
   return state.comparison?.strategies?.find((strategy) => strategy.available)?.code || "";
 }
 
 function cartGroupsForStrategy(code) {
   if (code === "single_order") return singleOrderGroups();
+  if (code === "taxable_first") return orderGroupsForRecommendation(state.recommendations?.split_quantity);
   return state.recommendations?.[code]?.groups || [];
 }
 
@@ -1815,12 +1875,17 @@ function renderCartScripts() {
     return;
   }
 
+  const strategyOptions = [
+    ...availableStrategies,
+    ...(hasTaxableFirstPlan() ? [{ code: "taxable_first", label: cartStrategyLabel("taxable_first") }] : []),
+  ];
+
   box.innerHTML = `
     <div class="grid" style="margin-bottom: 12px;">
       <div>
         <label for="cartStrategySelect">장바구니 담기 전략</label>
         <select id="cartStrategySelect">
-          ${availableStrategies.map((strategy) => `
+          ${strategyOptions.map((strategy) => `
             <option value="${escapeHtml(strategy.code)}" ${strategy.code === selectedStrategy ? "selected" : ""}>
               ${escapeHtml(cartStrategyLabel(strategy.code))}
             </option>
@@ -1951,7 +2016,7 @@ function applyQuoteResult(raw) {
   state.products = validation.products;
   state.recommendations = recommendations;
   state.comparison = compareWizardStrategies(result.measurement, settings);
-  state.selectedCartStrategy = state.comparison.cheapestCode || "";
+  state.selectedCartStrategy = hasTaxableFirstPlan() ? "taxable_first" : (state.comparison.cheapestCode || "");
   renderQuoteResultPreview();
   renderComparison();
   renderCartScripts();

@@ -51,6 +51,7 @@ function strategyMeasurement(groups, recommendation) {
       totalJpy: recommendation.totalJpy,
       groupCount: recommendation.groups.length,
       oversizeCount: recommendation.oversize.length,
+      taxableGroupCount: recommendation.taxableGroups.length,
     },
     splitShipments: groups,
     splitUnavailableReason: "",
@@ -99,6 +100,29 @@ assert.deepStrictEqual(structuralValidation.errors, []);
 assert.strictEqual(structuralValidation.valid, true);
 assert.deepStrictEqual(
   quoteResultCore.validateRecommendationMeasurements(recommendations, validResult.measurement, structuralValidation.products),
+  { valid: true, errors: [] },
+);
+
+const mixedTaxableProducts = [
+  { ...products[0], index: 0, code: "BIG-PART", unitJpy: 30000, totalJpy: 30000 },
+  { ...products[1], index: 1, code: "SMALL-PART", unitJpy: 10000, totalJpy: 10000 },
+];
+const mixedTaxableRecommendations = {
+  split_quantity: grouping.recommendGroups(mixedTaxableProducts, { ...groupSettings, splitQuantity: true }),
+  row_unit: grouping.recommendGroups(mixedTaxableProducts, { ...groupSettings, splitQuantity: false }),
+};
+const mixedTaxableMeasurement = {
+  strategies: {
+    split_quantity: strategyMeasurement([], mixedTaxableRecommendations.split_quantity),
+    row_unit: strategyMeasurement([], mixedTaxableRecommendations.row_unit),
+  },
+};
+assert.deepStrictEqual(
+  quoteResultCore.validateRecommendationMeasurements(
+    mixedTaxableRecommendations,
+    mixedTaxableMeasurement,
+    mixedTaxableProducts,
+  ),
   { valid: true, errors: [] },
 );
 

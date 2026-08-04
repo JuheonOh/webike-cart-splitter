@@ -177,6 +177,30 @@
     return shipments.map((shipment) => inventorySignature(shipment.products)).sort().join("||");
   }
 
+  function recommendationInventorySignature(recommendation) {
+    const quantities = new Map();
+    const groups = [
+      ...(Array.isArray(recommendation?.taxableGroups) ? recommendation.taxableGroups : []),
+      ...(Array.isArray(recommendation?.groups) ? recommendation.groups : []),
+    ];
+    groups.forEach((group) => {
+      group.forEach((atom) => {
+        const index = Number(atom?.productIndex);
+        if (!Number.isInteger(index)) return;
+        quantities.set(index, (quantities.get(index) || 0) + Number(atom?.quantity || 0));
+      });
+    });
+    return [...quantities.entries()].sort((left, right) => left[0] - right[0])
+      .map(([index, quantity]) => `${index}:${quantity}`)
+      .join("|");
+  }
+
+  function productInventorySignature(products) {
+    return products.map((product) => `${product.index}:${product.quantity}`)
+      .sort()
+      .join("|");
+  }
+
   function validateShipment(shipment, label, productByIndex, errors) {
     if (!shipment || typeof shipment !== "object" || Array.isArray(shipment)) {
       errors.push(`${label} 정보가 올바르지 않습니다.`);
@@ -355,11 +379,19 @@
       const summary = measured.recommendationSummary;
       if (!summary || summary.totalJpy !== recommendation.totalJpy ||
         summary.groupCount !== recommendation.groups.length ||
-        summary.oversizeCount !== recommendation.oversize.length) {
+        summary.oversizeCount !== recommendation.oversize.length ||
+        (summary.taxableGroupCount !== undefined &&
+          summary.taxableGroupCount !== (recommendation.taxableGroups?.length || 0))) {
         errors.push(`${code} 추천 요약이 현재 계산 결과와 일치하지 않습니다.`);
       }
+      if (recommendation.complete === false ||
+        recommendationInventorySignature(recommendation) !== productInventorySignature(products)) {
+        errors.push(`${code} 추천 그룹이 전체 상품 수량을 포함하지 않습니다.`);
+      }
 
-      const expectedGroups = recommendation.groups.length > 1
+      const expectedGroups = recommendation.taxableGroups?.length
+        ? []
+        : recommendation.groups.length > 1
         ? recommendation.groups.map((group) => ({ products: productsFromRecommendationGroup(group, productByIndex) }))
         : [];
       const measuredGroups = Array.isArray(measured.splitShipments) ? measured.splitShipments : [];

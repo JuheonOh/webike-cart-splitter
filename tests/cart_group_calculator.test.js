@@ -508,10 +508,49 @@ const unsafeCartScript = uiApi.buildWebikeCartScript(unsafeProducts);
 assert(!unsafeCartScript.includes("<script>"), "generated script must escape HTML-like product data");
 assert(unsafeCartScript.includes("\\u003cscript\\u003ealert(1)\\u003c/script\\u003e"));
 
-const oversizeRecommendation = api.recommendGroups(unsafeProducts, makeSettings({ limitUsd: 1 }));
-const oversizeHtml = uiApi.renderGroups(oversizeRecommendation, makeSettings({ limitUsd: 1 }));
+const oversizeRecommendation = api.recommendGroups(unsafeProducts, makeSettings({ limitUsd: 0.5 }));
+const oversizeHtml = uiApi.renderGroups(oversizeRecommendation, makeSettings({ limitUsd: 0.5 }));
 assert(!oversizeHtml.includes("<img"), "oversize product code must not render as raw HTML");
 assert(oversizeHtml.includes("&lt;img src=x onerror=alert(1)&gt;"));
+
+const taxableAndTaxFreeProducts = [
+  makeProduct(0, "TAX-001", "Taxable item", 1, 30000),
+  makeProduct(1, "DUTYFREE-001", "Duty-free item A", 1, 10000),
+  makeProduct(2, "DUTYFREE-002", "Duty-free item B", 1, 10000),
+];
+const taxableAndTaxFreeRecommendation = api.recommendGroups(taxableAndTaxFreeProducts, makeSettings());
+assert.strictEqual(taxableAndTaxFreeRecommendation.oversize.length, 1);
+assert.strictEqual(taxableAndTaxFreeRecommendation.taxableGroups.length, 1);
+assert.strictEqual(api.aggregateGroup(taxableAndTaxFreeRecommendation.taxableGroups[0])[0].code, "TAX-001");
+assert.strictEqual(taxableAndTaxFreeRecommendation.groups.length, 1);
+assert.strictEqual(api.groupTotals(taxableAndTaxFreeRecommendation.groups[0], makeSettings()).totalJpy, 20000);
+
+const taxableConsumesLastGroupSlot = api.recommendGroups(taxableAndTaxFreeProducts, makeSettings({ maxGroups: 1 }));
+assert.strictEqual(taxableConsumesLastGroupSlot.taxableGroups.length, 1);
+assert.strictEqual(taxableConsumesLastGroupSlot.groups.length, 0);
+assert(taxableConsumesLastGroupSlot.message.includes("모든 품목"));
+assert.deepStrictEqual(unzipStoredEntries(api.buildGroupCsvZipBytes(taxableConsumesLastGroupSlot)), {});
+
+const taxableQuantityRecommendation = api.recommendGroups([
+  makeProduct(0, "TAX-QTY-001", "Taxable quantity", 2, 30000),
+], makeSettings());
+assert.strictEqual(taxableQuantityRecommendation.taxableGroups.length, 1, "same taxable product quantity stays in one order");
+assert.strictEqual(api.aggregateGroup(taxableQuantityRecommendation.taxableGroups[0])[0].quantity, 2);
+
+const taxableGroupHtml = uiApi.renderGroups(taxableAndTaxFreeRecommendation, makeSettings());
+assert(taxableGroupHtml.indexOf("TAX-001") < taxableGroupHtml.indexOf("DUTYFREE-001"), "taxable groups should render first");
+assert(taxableGroupHtml.includes("과세 예상"));
+assert(taxableGroupHtml.includes('data-group-kind="taxable"'));
+const taxableCsvEntries = unzipStoredEntries(api.buildGroupCsvZipBytes(taxableAndTaxFreeRecommendation));
+assert.deepStrictEqual(Object.keys(taxableCsvEntries), [
+  "webike_taxable_order_group_01.csv",
+  "webike_order_group_01.csv",
+]);
+assert(taxableCsvEntries["webike_taxable_order_group_01.csv"].includes("TAX-001"));
+assert(taxableCsvEntries["webike_order_group_01.csv"].includes("DUTYFREE-001"));
+const taxableXlsxRows = api.buildGroupRows(taxableAndTaxFreeProducts, taxableAndTaxFreeRecommendation, makeSettings());
+const taxableXlsxText = JSON.stringify(taxableXlsxRows);
+assert(taxableXlsxText.indexOf("TAX-001") < taxableXlsxText.indexOf("DUTYFREE-001"), "taxable groups should lead XLSX output");
 
 const manualResult = api.normalizeManualProducts([
   { code: "A-001", name: "Manual Item", quantity: "2", unitJpy: "1500" },

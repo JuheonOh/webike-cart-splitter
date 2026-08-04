@@ -439,6 +439,22 @@
   }
 
   function recommendationStatus(recommendation) {
+    if (recommendation.complete === false && recommendation.reasonCode === "atom_over_limit") {
+      return {
+        label: "주문 계획 미완성",
+        style: "statusWarn",
+        reason: "최대 주문 수 안에 모든 품목을 배치하지 못했습니다.",
+        action: "최대 주문 수를 늘린 뒤 다시 계산하세요.",
+      };
+    }
+    if (recommendation.taxableGroups?.length) {
+      return {
+        label: "과세 예상 주문 포함",
+        style: "statusBad",
+        reason: "개당 한도 초과 품목을 별도 주문으로 분리했습니다.",
+        action: "해당 주문은 관세·부가세와 추가 통관 절차를 확인하세요.",
+      };
+    }
     if (recommendation.oversize.length) {
       return {
         label: "단일 품목 한도 초과",
@@ -489,12 +505,39 @@
     ];
     const rows = [];
 
-    if (recommendation.groups.length) {
+    const taxableGroups = Array.isArray(recommendation.taxableGroups) ? recommendation.taxableGroups : [];
+    const taxFreeGroups = Array.isArray(recommendation.groups) ? recommendation.groups : [];
+    const orderGroups = [
+      ...taxableGroups.map((group) => ({ group, taxable: true })),
+      ...taxFreeGroups.map((group) => ({ group, taxable: false })),
+    ];
+
+    if (orderGroups.length) {
       rows.push(productHeader);
-      recommendation.groups.forEach((group, index) => {
+      if (recommendation.complete === false) {
+        rows.push([
+          xlsxCell("-", "sectionText"),
+          xlsxCell("주문 계획 미완성", "statusWarn"),
+          xlsxCell("확인 필요", "sectionText"),
+          xlsxCell("최대 주문 수 안에 모든 품목을 배치하지 못했습니다.", "sectionText"),
+          xlsxCell("", "sectionText"),
+          xlsxCell("", "sectionText"),
+          xlsxCell("", "sectionText"),
+          xlsxCell("", "sectionText"),
+          xlsxCell("", "sectionText"),
+          xlsxCell("미확인", "checkCell"),
+          xlsxCell("최대 주문 수를 늘린 뒤 다시 계산하세요.", "noteBox"),
+        ]);
+      }
+      orderGroups.forEach(({ group, taxable }, index) => {
         const totals = groupTotals(group, settings);
         const groupItems = aggregateGroup(group);
-        const status = groupMarginStatus(totals.marginUsd);
+        const status = taxable
+          ? { label: "과세 예상", style: "statusBad", marginStyle: "marginBad" }
+          : groupMarginStatus(totals.marginUsd);
+        const note = taxable
+          ? "관세·부가세 및 추가 통관 절차 확인"
+          : "Webike 최종 금액 확인";
         rows.push([
           xlsxCell(index + 1, "sectionInteger"),
           xlsxCell(status.label, status.style),
@@ -506,7 +549,7 @@
           xlsxCell(totals.totalUsd, "sectionUsd"),
           xlsxCell(totals.marginUsd, status.marginStyle),
           xlsxCell("미확인", "checkCell"),
-          xlsxCell("Webike 최종 금액 확인", "noteBox"),
+          xlsxCell(note, "noteBox"),
         ]);
 
         groupItems.forEach((item) => {
@@ -524,7 +567,7 @@
             xlsxCell("", "checkCell"),
           ]);
         });
-        if (index < recommendation.groups.length - 1) {
+        if (index < orderGroups.length - 1) {
           rows.push([]);
         }
       });
@@ -1106,9 +1149,17 @@
   }
 
   function buildGroupCsvZipBytes(recommendation) {
-    if (!recommendation.groups.length) return createZip([]);
-    const files = recommendation.groups.map((group, index) => ({
-      name: `webike_order_group_${String(index + 1).padStart(2, "0")}.csv`,
+    const taxableGroups = Array.isArray(recommendation.taxableGroups) ? recommendation.taxableGroups : [];
+    const taxFreeGroups = Array.isArray(recommendation.groups) ? recommendation.groups : [];
+    const orderGroups = [
+      ...taxableGroups.map((group) => ({ group, taxable: true })),
+      ...taxFreeGroups.map((group) => ({ group, taxable: false })),
+    ];
+    if (!orderGroups.length || recommendation.complete === false) return createZip([]);
+    const files = orderGroups.map(({ group, taxable }, index) => ({
+      name: taxable
+        ? `webike_taxable_order_group_${String(index + 1).padStart(2, "0")}.csv`
+        : `webike_order_group_${String(index - taxableGroups.length + 1).padStart(2, "0")}.csv`,
       content: groupCsvContent(group),
     }));
     return createZip(files);

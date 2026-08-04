@@ -199,6 +199,68 @@
     return groups.filter((group) => group.length > 0);
   }
 
+  function groupAtomsByProduct(atoms) {
+    const groups = new Map();
+    atoms.forEach((atom) => {
+      const key = `${atom.productIndex}:${atom.code}`;
+      const group = groups.get(key) || [];
+      group.push(atom);
+      groups.set(key, group);
+    });
+    return [...groups.values()];
+  }
+
+  function recommendAtomGroups(atoms, settings) {
+    if (!atoms.length) {
+      return { groups: [], reasonCode: "", message: "", warnings: [] };
+    }
+
+    const atomTotalJpy = atoms.reduce((sum, item) => sum + item.totalJpy, 0);
+    if (!Number.isInteger(settings.maxGroups) || settings.maxGroups < 1) {
+      return {
+        groups: [],
+        reasonCode: "max_groups_too_small",
+        message: "현재 최대 주문 수로는 면세 한도 이하 그룹을 만들 수 없습니다.",
+        warnings: [],
+      };
+    }
+    const minimumGroups = Math.max(1, Math.ceil(atomTotalJpy / settings.limitJpy));
+    if (minimumGroups === 1) {
+      return { groups: [atoms], reasonCode: "single_group", message: "", warnings: [] };
+    }
+    if (minimumGroups > settings.maxGroups) {
+      return {
+        groups: [],
+        reasonCode: "max_groups_too_small",
+        message: "현재 최대 주문 수로는 면세 한도 이하 그룹을 만들 수 없습니다.",
+        warnings: [],
+      };
+    }
+
+    const warnings = [];
+    if (minimumGroups === 2) {
+      const exactResult = twoGroupDpResult(atoms, settings.limitJpy, settings.exactSearchOptions);
+      if (exactResult.groups) {
+        return { groups: exactResult.groups, reasonCode: "grouped", message: "", warnings };
+      }
+      if (exactResult.budgetExceeded) warnings.push("exact_search_budget_exceeded");
+    }
+
+    for (let count = minimumGroups; count <= settings.maxGroups; count += 1) {
+      const groups = firstFitDecreasing(atoms, count, settings.limitJpy);
+      if (groups) {
+        return { groups, reasonCode: "grouped", message: "", warnings };
+      }
+    }
+
+    return {
+      groups: [],
+      reasonCode: "grouping_not_found",
+      message: "지정한 최대 주문 수 안에서 그룹을 찾지 못했습니다.",
+      warnings,
+    };
+  }
+
   function recommendGroups(products, settings) {
     const validation = validateGroupingRequest(products, settings);
     const totalJpy = totalProductJpy(Array.isArray(products) ? products : []);
@@ -206,8 +268,10 @@
       return {
         totalJpy,
         groups: [],
+        taxableGroups: [],
         oversize: [],
         atoms: [],
+        complete: false,
         reasonCode: validation.reasonCode,
         message: validation.message,
         warnings: [],
@@ -217,34 +281,44 @@
     const atomTotalJpy = atoms.reduce((sum, item) => sum + item.totalJpy, 0);
     const oversize = atoms.filter((item) => item.totalJpy > settings.limitJpy);
     if (oversize.length) {
-      return { totalJpy: atomTotalJpy, groups: [], oversize, atoms, reasonCode: "atom_over_limit", message: "단일 계산 단위가 면세 한도를 초과했습니다.", warnings: [] };
+      const taxableGroups = groupAtomsByProduct(oversize);
+      const groupableAtoms = atoms.filter((item) => item.totalJpy <= settings.limitJpy);
+      const groupableResult = recommendAtomGroups(groupableAtoms, {
+        ...settings,
+        maxGroups: settings.maxGroups - taxableGroups.length,
+      });
+      const assignedAtomCount = taxableGroups.reduce((sum, group) => sum + group.length, 0) +
+        groupableResult.groups.reduce((sum, group) => sum + group.length, 0);
+      const complete = assignedAtomCount === atoms.length &&
+        taxableGroups.length + groupableResult.groups.length <= settings.maxGroups;
+      const message = complete
+        ? "개당 한도 초과 품목을 과세 예상 주문으로 분리했습니다."
+        : "개당 한도 초과 품목은 과세 예상 주문으로 분리했지만, 최대 주문 수 안에 모든 품목을 배치하지 못했습니다.";
+      return {
+        totalJpy: atomTotalJpy,
+        groups: groupableResult.groups,
+        taxableGroups,
+        oversize,
+        atoms,
+        complete,
+        reasonCode: "atom_over_limit",
+        message,
+        warnings: groupableResult.warnings,
+      };
     }
 
-    const minimumGroups = Math.max(1, Math.ceil(atomTotalJpy / settings.limitJpy));
-    if (minimumGroups === 1) {
-      return { totalJpy: atomTotalJpy, groups: [atoms], oversize: [], atoms, reasonCode: "single_group", message: "", warnings: [] };
-    }
-    if (minimumGroups > settings.maxGroups) {
-      return { totalJpy: atomTotalJpy, groups: [], oversize: [], atoms, reasonCode: "max_groups_too_small", message: "현재 최대 주문 수로는 면세 한도 이하 그룹을 만들 수 없습니다.", warnings: [] };
-    }
-
-    const warnings = [];
-    if (minimumGroups === 2) {
-      const exactResult = twoGroupDpResult(atoms, settings.limitJpy, settings.exactSearchOptions);
-      if (exactResult.groups) {
-        return { totalJpy: atomTotalJpy, groups: exactResult.groups, oversize: [], atoms, reasonCode: "grouped", message: "", warnings };
-      }
-      if (exactResult.budgetExceeded) warnings.push("exact_search_budget_exceeded");
-    }
-
-    for (let count = minimumGroups; count <= settings.maxGroups; count += 1) {
-      const groups = firstFitDecreasing(atoms, count, settings.limitJpy);
-      if (groups) {
-        return { totalJpy: atomTotalJpy, groups, oversize: [], atoms, reasonCode: "grouped", message: "", warnings };
-      }
-    }
-
-    return { totalJpy: atomTotalJpy, groups: [], oversize: [], atoms, reasonCode: "grouping_not_found", message: "지정한 최대 주문 수 안에서 그룹을 찾지 못했습니다.", warnings };
+    const grouped = recommendAtomGroups(atoms, settings);
+    return {
+      totalJpy: atomTotalJpy,
+      groups: grouped.groups,
+      taxableGroups: [],
+      oversize: [],
+      atoms,
+      complete: true,
+      reasonCode: grouped.reasonCode,
+      message: grouped.message,
+      warnings: grouped.warnings,
+    };
   }
 
   function aggregateGroup(group) {
@@ -274,6 +348,7 @@
     twoGroupDp,
     twoGroupDpResult,
     firstFitDecreasing,
+    groupAtomsByProduct,
     recommendGroups,
     aggregateGroup,
   };

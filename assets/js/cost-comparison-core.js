@@ -211,7 +211,8 @@
     ]);
 
     const groups = Array.isArray(recommendation?.groups) ? recommendation.groups : [];
-    const split = groups.length
+    const taxableGroups = Array.isArray(recommendation?.taxableGroups) ? recommendation.taxableGroups : [];
+    const split = groups.length && recommendation?.complete !== false && !taxableGroups.length
       ? summarizeStrategy("split_tax_free", "150 USD 이하 분할 주문", groups.map((group, index) => buildShipment({
         label: `주문 ${index + 1}`,
         productJpy: groupProductTotalJpy(group),

@@ -111,9 +111,20 @@ function money(value, digits = 0) {
   });
 }
 
+function orderGroupsForRecommendation(recommendation) {
+  const taxableGroups = Array.isArray(recommendation?.taxableGroups) ? recommendation.taxableGroups : [];
+  const taxFreeGroups = Array.isArray(recommendation?.groups) ? recommendation.groups : [];
+  return [
+    ...taxableGroups.map((group, index) => ({ group, taxable: true, groupIndex: index })),
+    ...taxFreeGroups.map((group, index) => ({ group, taxable: false, groupIndex: index })),
+  ];
+}
+
 function setExportEnabled(enabled) {
-  $("#exportXlsxButton").disabled = !enabled;
-  $("#exportCsvZipButton").disabled = !(enabled && latestAnalysis?.recommendation.groups.length);
+  const recommendation = latestAnalysis?.recommendation;
+  const complete = recommendation?.complete !== false;
+  $("#exportXlsxButton").disabled = !(enabled && complete);
+  $("#exportCsvZipButton").disabled = !(enabled && complete && orderGroupsForRecommendation(recommendation).length);
 }
 
 function publishCalculatorState(state) {
@@ -144,6 +155,10 @@ function downloadXlsx() {
     showError("먼저 분석을 실행해 주세요.");
     return;
   }
+  if (latestAnalysis.recommendation.complete === false) {
+    showError("최대 주문 수 안에 모든 품목을 배치하지 못했습니다. 최대 주문 수를 늘린 뒤 다시 계산해 주세요.");
+    return;
+  }
 
   const xlsxBytes = buildXlsxBytes(
     latestAnalysis.products,
@@ -166,7 +181,11 @@ function downloadGroupCsvZip() {
     showError("먼저 분석을 실행해 주세요.");
     return;
   }
-  if (!latestAnalysis.recommendation.groups.length) {
+  if (latestAnalysis.recommendation.complete === false) {
+    showError("최대 주문 수 안에 모든 품목을 배치하지 못했습니다. 최대 주문 수를 늘린 뒤 다시 계산해 주세요.");
+    return;
+  }
+  if (!orderGroupsForRecommendation(latestAnalysis.recommendation).length) {
     showError("CSV로 내보낼 추천 주문 그룹이 없습니다.");
     return;
   }
@@ -333,8 +352,13 @@ function renderSummary(products, recommendation, settings) {
   const totalKrw = recommendation.totalJpy * settings.jpyKrw;
   const totalUsd = totalKrw / settings.usdKrw;
   const limitKrw = settings.limitUsd * settings.usdKrw;
-  const statusText = recommendation.groups.length ? "가능" : "확인 필요";
-  const statusClass = recommendation.groups.length ? "ok" : "warn";
+  const orderGroups = orderGroupsForRecommendation(recommendation);
+  const taxableCount = orderGroups.filter((item) => item.taxable).length;
+  const taxFreeCount = orderGroups.length - taxableCount;
+  const statusText = taxableCount
+    ? (recommendation.complete === false ? "확인 필요" : (taxFreeCount ? "과세 포함" : "과세 주문"))
+    : (taxFreeCount ? "가능" : "확인 필요");
+  const statusClass = recommendation.complete === false ? "warn" : (taxableCount ? "warn" : (taxFreeCount ? "ok" : "warn"));
   const exactSearchFallback = recommendation.warnings?.includes("exact_search_budget_exceeded");
 
   return `
@@ -342,7 +366,7 @@ function renderSummary(products, recommendation, settings) {
       <div class="metric"><span>추출 상품</span><b>${products.length}종</b><small>${recommendation.atoms.length}개 단위 계산</small></div>
       <div class="metric"><span>전체 상품가</span><b>${money(recommendation.totalJpy)} JPY</b><small>약 ${money(totalUsd, 2)} USD</small></div>
       <div class="metric"><span>150달러 한도</span><b>${money(Math.floor(settings.limitJpy))} JPY</b><small>${money(limitKrw)}원</small></div>
-      <div class="metric"><span>주문 분할</span><b class="${statusClass}">${statusText}</b><small>${recommendation.groups.length || "-"}개 주문</small></div>
+      <div class="metric"><span>주문 분할</span><b class="${statusClass}">${statusText}</b><small>${orderGroups.length || "-"}개 주문${taxableCount ? ` · 과세 예상 ${taxableCount}개` : ""}</small></div>
     </section>
     ${exactSearchFallback ? `
       <p class="calculation-warning warn" role="status">
@@ -606,17 +630,16 @@ function checkedAttr(value) {
 }
 
 function renderGroups(recommendation, settings, progress = {}) {
-  if (recommendation.oversize.length) {
-    const list = recommendation.oversize.map((item) => `<li>${escapeHtml(item.code)} - ${escapeHtml(item.name)}: ${money(item.totalJpy)} JPY</li>`).join("");
-    return `<section class="panel"><h2>그룹 추천</h2><p class="bad">단일 품목이 한도를 초과했습니다.</p><ul>${list}</ul></section>`;
-  }
-
-  if (!recommendation.groups.length) {
+  const orderGroups = orderGroupsForRecommendation(recommendation);
+  if (!orderGroups.length) {
     const message = recommendation.message || "지정한 최대 주문 수 안에서 한도 이하 그룹을 찾지 못했습니다.";
-    return `<section class="panel"><h2>그룹 추천</h2><p class="warn">${escapeHtml(message)}</p></section>`;
+    const oversizeList = recommendation.oversize?.length
+      ? `<ul>${recommendation.oversize.map((item) => `<li>${escapeHtml(item.code)} - ${escapeHtml(item.name)}: ${money(item.totalJpy)} JPY</li>`).join("")}</ul>`
+      : "";
+    return `<section class="panel"><h2>그룹 추천</h2><p class="warn">${escapeHtml(message)}</p>${oversizeList}</section>`;
   }
 
-  const cards = recommendation.groups.map((group, index) => {
+  const cards = orderGroups.map(({ group, taxable, groupIndex }, orderIndex) => {
     const groupKey = groupFingerprint(group);
     const progressState = progress[groupKey] || {};
     const totalJpy = group.reduce((sum, item) => sum + item.totalJpy, 0);
@@ -624,6 +647,11 @@ function renderGroups(recommendation, settings, progress = {}) {
     const totalUsd = totalKrw / settings.usdKrw;
     const marginUsd = settings.limitUsd - totalUsd;
     const marginJpy = settings.limitJpy - totalJpy;
+    const statusText = taxable ? "과세 예상" : (marginUsd >= 0 ? "면세 예상" : "한도 초과");
+    const marginText = taxable
+      ? "추가 통관 절차 및 관세·부가세 확인"
+      : `여유 약 ${money(marginUsd, 2)} USD / ${money(Math.floor(marginJpy))} JPY`;
+    const planComplete = recommendation.complete !== false;
     const rows = aggregateGroup(group).map((item) => `
       <tr>
         <td>${escapeHtml(item.code)}</td>
@@ -638,21 +666,23 @@ function renderGroups(recommendation, settings, progress = {}) {
       <article class="group-card" data-group-key="${escapeHtml(groupKey)}">
         <div class="group-head">
           <div class="group-heading">
-            <div><b>주문 ${index + 1}</b> <span class="badge">약 ${money(totalUsd, 2)} USD</span></div>
-            <div class="${marginUsd >= 0 ? "ok" : "bad"}">여유 약 ${money(marginUsd, 2)} USD / ${money(Math.floor(marginJpy))} JPY</div>
+            <div><b>주문 ${orderIndex + 1}</b> <span class="badge ${taxable ? "bad" : ""}">${statusText} · 약 ${money(totalUsd, 2)} USD</span></div>
+            <div class="${taxable || marginUsd < 0 ? "bad" : "ok"}">${marginText}</div>
           </div>
           <div class="group-script-actions">
             <button
               type="button"
               class="compact"
               data-action="copy-group-cart-script"
-              data-group-index="${index}"
-              aria-describedby="groupScriptStatus${index}"
+              data-group-kind="${taxable ? "taxable" : "tax-free"}"
+              data-group-index="${groupIndex}"
+              aria-describedby="groupScriptStatus${orderIndex}"
+              ${planComplete ? "" : " disabled"}
             >스크립트 만들기</button>
-            <span id="groupScriptStatus${index}" class="group-script-status" role="status" aria-live="polite"></span>
+            <span id="groupScriptStatus${orderIndex}" class="group-script-status" role="status" aria-live="polite"></span>
           </div>
         </div>
-        <div class="group-checks" aria-label="주문 ${index + 1} 실행 상태">
+        <div class="group-checks" aria-label="주문 ${orderIndex + 1} 실행 상태">
           <label><input type="checkbox" class="group-script-copied group-progress-check" data-progress-field="scriptCopied"${checkedAttr(progressState.scriptCopied)}> 스크립트 복사</label>
           <label><input type="checkbox" class="group-progress-check" data-progress-field="finalAmountChecked"${checkedAttr(progressState.finalAmountChecked)}> Webike 최종 금액 확인</label>
           <label><input type="checkbox" class="group-progress-check" data-progress-field="ordered"${checkedAttr(progressState.ordered)}> 주문 완료</label>
@@ -681,7 +711,10 @@ function renderGroups(recommendation, settings, progress = {}) {
     `;
   }).join("");
 
-  return `<section class="group-grid"><h2>추천 주문 그룹</h2>${cards}</section>`;
+  const taxableNotice = recommendation.taxableGroups?.length
+    ? `<p class="warn">${escapeHtml(recommendation.message || "개당 한도 초과 품목을 과세 예상 주문으로 분리했습니다.")}</p>`
+    : "";
+  return `<section class="group-grid"><h2>추천 주문 그룹</h2>${taxableNotice}<p class="subtle">과세 예상 주문을 먼저 표시했습니다. 통관 절차가 긴 주문부터 진행하세요.</p>${cards}</section>`;
 }
 
 function getSettings() {
@@ -1026,8 +1059,11 @@ async function copyTextToClipboard(text) {
 
 async function copyGroupWebikeCartScript(button) {
   clearError();
+  const groupKind = button.dataset.groupKind === "taxable" ? "taxable" : "tax-free";
   const groupIndex = Number(button.dataset.groupIndex);
-  const group = latestAnalysis?.recommendation?.groups?.[groupIndex];
+  const recommendation = latestAnalysis?.recommendation;
+  const groups = groupKind === "taxable" ? recommendation?.taxableGroups : recommendation?.groups;
+  const group = groups?.[groupIndex];
   if (!group) {
     showError("복사할 주문 그룹이 없습니다. 다시 분석해 주세요.");
     setGroupScriptButtonsEnabled(false, "다시 분석 필요");
@@ -1043,7 +1079,7 @@ async function copyGroupWebikeCartScript(button) {
     const copied = await copyTextToClipboard(script);
     setGroupScriptStatus(
       button,
-      copied ? `주문 ${groupIndex + 1} 스크립트 복사됨` : "복사 실패. 브라우저 권한을 확인하세요.",
+      copied ? `주문 스크립트 복사됨` : "복사 실패. 브라우저 권한을 확인하세요.",
       copied,
     );
     setGroupScriptCopied(button, copied);

@@ -196,6 +196,31 @@ async function testCalculatorManualFlow(page, baseUrl) {
   assert.strictEqual(await page.$eval("#exportXlsxButton", (button) => button.disabled), true);
 }
 
+async function testTaxableGroupsFirst(page, baseUrl) {
+  await page.goto(`${baseUrl}/cart_group_calculator.html`);
+  await page.click("input[name='inputMode'][value='manual']");
+  await page.fill(
+    "#bulkPasteInput",
+    [
+      "상품번호\t상품명\t수량\t단가JPY",
+      "TAX-001\tTaxable item\t1\t30000",
+      "DUTYFREE-001\tDuty-free item\t1\t1000",
+    ].join("\n"),
+  );
+  await page.click("#applyBulkPasteButton");
+  await page.click("#analyzeButton");
+  await page.waitForFunction(() => document.querySelectorAll(".group-card").length === 2);
+
+  const groupTexts = await page.$$eval(".group-card", (cards) => cards.map((card) => card.textContent));
+  assert.ok(groupTexts[0].includes("TAX-001"));
+  assert.ok(groupTexts[0].includes("과세 예상"));
+  assert.ok(groupTexts[1].includes("DUTYFREE-001"));
+  assert.strictEqual(await page.$eval("#exportCsvZipButton", (button) => button.disabled), false);
+
+  await page.click('[data-action="copy-group-cart-script"]');
+  await page.waitForFunction(() => window.__webikeCopiedText?.includes('"partNumber": "TAX-001"'));
+}
+
 async function testWizardStepGating(page, baseUrl) {
   await page.goto(`${baseUrl}/webike_quote_wizard.html#step-1`);
   await page.waitForSelector('[data-production-component="wizard-bridge"] [data-production-component="wizard-state"][data-state="steps"]');
@@ -382,6 +407,90 @@ async function testWizardStepGating(page, baseUrl) {
   assert.strictEqual(await page.$eval('[data-step-target="2"]', (button) => button.disabled), true);
 }
 
+async function testWizardTaxableFirstPlan(page, baseUrl) {
+  await page.goto(`${baseUrl}/webike_quote_wizard.html#step-1`);
+  await page.waitForFunction(() => !document.querySelector("#wizardExchangeRateSource").textContent.includes("확인하는 중"));
+  await page.fill(
+    "#pasteInput",
+    [
+      "BIG-001,1,Taxable wizard item,30000,https://example.com/item/BIG-001",
+      "SMALL-001,1,Duty-free wizard item,1000,https://example.com/item/SMALL-001",
+    ].join("\n"),
+  );
+  await page.click("#parseInputButton");
+  await page.click('[data-step-target="2"]');
+  const settings = await page.evaluate(() => getSettings());
+  const quoteProducts = [
+    {
+      index: 0,
+      code: "BIG-001",
+      productId: "910001",
+      productUrl: "https://example.com/item/BIG-001",
+      name: "Taxable wizard item",
+      quantity: 1,
+      unitJpy: 30000,
+      totalJpy: 30000,
+    },
+    {
+      index: 1,
+      code: "SMALL-001",
+      productId: "910002",
+      productUrl: "https://example.com/item/SMALL-001",
+      name: "Duty-free wizard item",
+      quantity: 1,
+      unitJpy: 1000,
+      totalJpy: 1000,
+    },
+  ];
+  const recommendationSummary = {
+    totalJpy: 31000,
+    groupCount: 1,
+    oversizeCount: 1,
+    taxableGroupCount: 1,
+  };
+  const quoteResult = {
+    source: "webike-cart-splitter-wizard",
+    schemaVersion: 1,
+    status: "measured",
+    settings,
+    products: quoteProducts,
+    measurement: {
+      singleShipment: {
+        label: "한 번에 주문",
+        productJpy: 31000,
+        shippingJpy: 1200,
+        products: quoteProducts,
+      },
+      strategies: {
+        split_quantity: {
+          recommendationSummary,
+          splitShipments: [],
+          splitUnavailableReason: "단일 계산 단위가 면세 한도를 초과했습니다.",
+        },
+        row_unit: {
+          recommendationSummary,
+          splitShipments: [],
+          splitUnavailableReason: "단일 계산 단위가 면세 한도를 초과했습니다.",
+        },
+      },
+    },
+    automationResults: [],
+  };
+  await page.click('[data-step-target="3"]');
+  await page.fill("#quoteResultInput", JSON.stringify(quoteResult));
+  await page.click("#applyQuoteResultButton");
+  await page.waitForSelector("#quoteResultNextAction:not(.hidden)");
+  await page.click("#goComparisonButton");
+  await page.waitForSelector("#goCartScriptsButton");
+  assert.ok(await page.$eval("#comparisonArea", (element) => element.textContent.includes("과세 예상 우선 주문")));
+  await page.click("#goCartScriptsButton");
+  await page.waitForSelector('[data-production-component="wizard-state"][data-state="cart-group"]');
+  const cartGroupTexts = await page.$$eval(".group-box", (boxes) => boxes.map((box) => box.textContent));
+  assert.strictEqual(cartGroupTexts.length, 2);
+  assert.ok(cartGroupTexts[0].includes("BIG-001"));
+  assert.ok(cartGroupTexts[1].includes("SMALL-001"));
+}
+
 async function testStyleguide(page, baseUrl) {
   await page.goto(`${baseUrl}/styleguide.html`);
   for (const section of styleguideSections) {
@@ -412,7 +521,9 @@ async function main() {
   try {
     await testPublicUrlsAndNav(page, baseUrl);
     await testCalculatorManualFlow(page, baseUrl);
+    await testTaxableGroupsFirst(page, baseUrl);
     await testWizardStepGating(page, baseUrl);
+    await testWizardTaxableFirstPlan(page, baseUrl);
     await testStyleguide(page, baseUrl);
   } finally {
     await browser.close();
