@@ -196,8 +196,9 @@
   }
 
   function productInventorySignature(products) {
-    return products.map((product) => `${product.index}:${product.quantity}`)
-      .sort()
+    return [...products]
+      .sort((left, right) => Number(left.index) - Number(right.index))
+      .map((product) => `${product.index}:${product.quantity}`)
       .join("|");
   }
 

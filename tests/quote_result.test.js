@@ -133,6 +133,34 @@ assert.deepStrictEqual(
   { valid: true, errors: [] },
 );
 
+const manyProducts = Array.from({ length: 12 }, (_, index) => ({
+  ...products[0],
+  index,
+  code: `PART-${index}`,
+  productId: `2000${index}`,
+  quantity: 1,
+  unitJpy: 1000,
+  totalJpy: 1000,
+}));
+const manyProductRecommendations = {
+  split_quantity: grouping.recommendGroups(manyProducts, { ...groupSettings, splitQuantity: true }),
+  row_unit: grouping.recommendGroups(manyProducts, { ...groupSettings, splitQuantity: false }),
+};
+const manyProductMeasurement = {
+  strategies: {
+    split_quantity: strategyMeasurement([], manyProductRecommendations.split_quantity),
+    row_unit: strategyMeasurement([], manyProductRecommendations.row_unit),
+  },
+};
+assert.deepStrictEqual(
+  quoteResultCore.validateRecommendationMeasurements(
+    manyProductRecommendations,
+    manyProductMeasurement,
+    manyProducts,
+  ),
+  { valid: true, errors: [] },
+);
+
 const missingProductId = structuredClone(validResult);
 missingProductId.products[0].productId = "";
 assert.ok(
