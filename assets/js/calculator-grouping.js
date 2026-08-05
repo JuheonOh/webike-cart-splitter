@@ -341,6 +341,14 @@
     return [...map.values()].sort((a, b) => b.subtotalJpy - a.subtotalJpy);
   }
 
+  function standaloneApiExpression() {
+    const factorySource = Function.prototype.toString.call(createWebikeCartGrouping);
+    if (!factorySource) {
+      throw new Error("그룹 계산 코어의 독립 실행 소스를 만들지 못했습니다.");
+    }
+    return `(${factorySource})()`;
+  }
+
   return {
     GROUPING_LIMITS,
     validateGroupingRequest,
@@ -351,5 +359,6 @@
     groupAtomsByProduct,
     recommendGroups,
     aggregateGroup,
+    standaloneApiExpression,
   };
 });

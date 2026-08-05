@@ -240,6 +240,20 @@ assert.ok(
     .errors.some((error) => error.includes("상품 URL")),
 );
 
+const insecureProductUrlRows = structuredClone(expectedInputRows);
+insecureProductUrlRows[0].productUrl = "http://www.japan-webike.kr/products/10001.html";
+assert.ok(
+  quoteResultCore.validateQuoteResult(validResult, { expectedInputRows: insecureProductUrlRows, expectedSettings: settings })
+    .errors.some((error) => error.includes("허용되지 않는 주소")),
+);
+
+const mismatchedProductIdResult = structuredClone(validResult);
+mismatchedProductIdResult.products[0].productUrl = "https://www.japan-webike.kr/products/99999.html";
+assert.ok(
+  quoteResultCore.validateQuoteResult(mismatchedProductIdResult, { expectedInputRows, expectedSettings: settings })
+    .errors.some((error) => error.includes("URL ID와 상품 ID")),
+);
+
 const changedSettings = { ...settings, usdKrw: settings.usdKrw + 1 };
 assert.ok(
   quoteResultCore.validateQuoteResult(validResult, { expectedInputRows, expectedSettings: changedSettings })

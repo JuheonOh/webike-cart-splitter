@@ -1130,7 +1130,11 @@
   }
 
   function csvCell(value) {
-    const text = String(value ?? "");
+    const rawText = String(value ?? "");
+    // Excel treats cells beginning with these characters (including control
+    // characters) as formulas. Prefixing an apostrophe keeps the displayed
+    // value intact while preventing formula execution when the CSV is opened.
+    const text = /^[\t\r\n=+\-@]/.test(rawText) ? `'${rawText}` : rawText;
     return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   }
 
@@ -1357,6 +1361,7 @@
     createZip,
     buildXlsxBytes,
     buildGroupCsvZipBytes,
+    csvCell,
     makeGroupCsvZipFileName,
     parseProducts,
     cartProductFromRow,

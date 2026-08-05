@@ -1107,6 +1107,8 @@ function buildQuoteScript() {
     unitJpy: row.unitJpy,
   }));
   const settings = getSettings();
+  const groupingApiExpression = window.WebikeCartGrouping?.standaloneApiExpression?.();
+  if (!groupingApiExpression) throw new Error("그룹핑 코어를 불러오지 못했습니다.");
 
   return `// Webike Cart Splitter quote script.
 // Open https://www.japan-webike.kr/, then paste this whole script into DevTools Console.
@@ -1114,11 +1116,13 @@ function buildQuoteScript() {
   const items = ${safeJsonForScript(items)};
   const settings = ${safeJsonForScript(settings)};
   const groupingLimits = ${safeJsonForScript(GROUPING_LIMITS)};
+  const groupingCore = ${groupingApiExpression};
   const requiredHost = "www.japan-webike.kr";
   const searchEndpoint = "/api-search-es.html";
   const defaultShippingApiUrl = "https://japan.webike.net/api_shipping.html";
+  const fetchTimeoutMs = 15000;
 
-  if (location.hostname !== requiredHost) {
+  if (location.origin !== "https://" + requiredHost) {
     console.error("Webike Korea 페이지에서 실행해 주세요: https://" + requiredHost + "/");
     return;
   }
@@ -1146,6 +1150,32 @@ function buildQuoteScript() {
 
   function normalizePartNumber(value) {
     return cleanText(value).replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  }
+
+  function allowedProductUrl(value) {
+    let url;
+    try {
+      url = new URL(value, location.origin);
+    } catch (error) {
+      throw new Error("상품 URL 형식이 올바르지 않습니다.");
+    }
+    if (url.origin !== "https://" + requiredHost || url.username || url.password || url.search || url.hash || !/^\\/products\\/\\d+\\.html$/i.test(url.pathname)) {
+      throw new Error("상품 URL은 https://" + requiredHost + "/products/<상품ID>.html 형식만 사용할 수 있습니다.");
+    }
+    return url.href;
+  }
+
+  function allowedShippingApiUrl(value) {
+    let url;
+    try {
+      url = new URL(value);
+    } catch (error) {
+      throw new Error("배송비 API URL 형식이 올바르지 않습니다.");
+    }
+    if (url.origin !== "https://japan.webike.net" || url.username || url.password || url.search || url.hash || url.pathname !== "/api_shipping.html") {
+      throw new Error("승인되지 않은 배송비 API URL입니다.");
+    }
+    return url;
   }
 
   function collectStrings(value, output) {
@@ -1206,9 +1236,21 @@ function buildQuoteScript() {
   }
 
   async function fetchText(url, fetchOptions) {
-    const response = await fetch(url, fetchOptions || { credentials: "include" });
-    if (!response.ok) throw new Error("HTTP " + response.status + ": " + url);
-    return response.text();
+    const options = Object.assign({ credentials: "include" }, fetchOptions || {});
+    const controller = new AbortController();
+    const timer = setTimeout(function () { controller.abort(); }, fetchTimeoutMs);
+    options.signal = controller.signal;
+    let response;
+    try {
+      response = await fetch(url, options);
+      if (!response.ok) throw new Error("HTTP " + response.status + ": " + url);
+      return await response.text();
+    } catch (error) {
+      if (error && error.name === "AbortError") throw new Error("Webike 응답 시간이 초과되었습니다(15초).");
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async function fetchJson(url, fetchOptions) {
@@ -1221,37 +1263,39 @@ function buildQuoteScript() {
   }
 
   async function resolveProductUrl(item) {
-    if (item.productUrl) return new URL(item.productUrl, location.origin).href;
+    if (item.productUrl) return allowedProductUrl(item.productUrl);
     const params = new URLSearchParams({
       search: "",
       "p.k": item.partNumber,
       "p.ref": "product-search-es",
       smp: "sp"
     });
-    return productUrlFromSearchData(await fetchJson(searchEndpoint + "?" + params), item);
+    return allowedProductUrl(productUrlFromSearchData(await fetchJson(searchEndpoint + "?" + params), item));
   }
 
   function parseProductDetail(html, productUrl, item) {
     const doc = new DOMParser().parseFromString(html, "text/html");
-    const productId = firstValue(doc, ["#prod_id", "input[name='prod_id']", "[data-prdId]", "[data-prdid]"]) || jsVariable(html, "productsId") || (productUrl.match(/\\/products\\/(\\d+)\\.html/i) || [])[1] || "";
-    const partNumber = firstValue(doc, ["#product_id"]) || jsVariable(html, "productsModel") || item.partNumber || productId;
+    const productId = firstValue(doc, ["#prod_id", "input[name='prod_id']", "[data-prdId]", "[data-prdid]"]) || jsVariable(html, "productsId");
+    const partNumber = firstValue(doc, ["#product_id"]) || jsVariable(html, "productsModel");
+    const urlProductId = (new URL(productUrl).pathname.match(/^\\/products\\/(\\d+)\\.html$/i) || [])[1] || "";
     const unitJpy = Math.round(toNumber(firstValue(doc, ["#priceYen", "input[name='priceYen']", "[data-priceRetail]"]) || jsVariable(html, "priceYen") || item.unitJpy));
     const name = jsVariable(html, "SYOUHIN_NAME") || doc.querySelector("h1")?.textContent || item.name || partNumber || productId;
     return {
       index: item.index,
-      code: cleanText(partNumber || item.partNumber || productId),
+      code: cleanText(partNumber),
       partNumber: cleanText(partNumber),
       name: cleanText(name),
       quantity: Math.max(1, Math.round(toNumber(item.quantity))),
       unitJpy: unitJpy,
       totalJpy: unitJpy * Math.max(1, Math.round(toNumber(item.quantity))),
-      productUrl: productUrl,
+      productUrl: allowedProductUrl(productUrl),
       productId: cleanText(productId),
+      urlProductId: cleanText(urlProductId),
       shippingWeight: toNumber(jsVariable(html, "productWeight")),
       shippingVolume: toNumber(jsVariable(html, "productVolume")),
       countryIso2: cleanText(jsVariable(html, "currentCountryIso2") || "KR").toUpperCase(),
       shopCode: cleanText(jsVariable(html, "shopCode") || "9000"),
-      shippingApiUrl: cleanText(jsVariable(html, "API_SHIPPING_URL") || defaultShippingApiUrl),
+      shippingApiUrl: allowedShippingApiUrl(cleanText(jsVariable(html, "API_SHIPPING_URL") || defaultShippingApiUrl)).href,
       canNotAddCart: ["1", "true", "yes", "y"].includes(cleanText(jsVariable(html, "canNotAddCart")).toLowerCase()),
       restrictedCountry: ["1", "true", "yes", "y"].includes(cleanText(jsVariable(html, "restrictedCountry")).toLowerCase()),
       optionRequired: Boolean(doc.querySelector(".option-select, [name='selectedOptions']"))
@@ -1262,6 +1306,8 @@ function buildQuoteScript() {
     const errors = [];
     if (!product.productId) errors.push("상품 ID를 찾지 못했습니다.");
     if (!product.code) errors.push("부품번호를 찾지 못했습니다.");
+    if (!product.productId || !product.partNumber) errors.push("상세 페이지의 실제 상품 ID와 상품번호를 모두 확인하지 못했습니다.");
+    if (!product.urlProductId || product.urlProductId !== product.productId) errors.push("상품 URL ID와 상세 상품 ID가 다릅니다.");
     if (!product.unitJpy) errors.push("JPY 단가를 찾지 못했습니다.");
     if (!product.shippingWeight) errors.push("productWeight 값을 찾지 못했습니다.");
     if (!product.shippingVolume) errors.push("productVolume 값을 찾지 못했습니다.");
@@ -1270,142 +1316,10 @@ function buildQuoteScript() {
     if (product.optionRequired) errors.push("옵션 선택이 필요한 상품입니다.");
     if (item.partNumber) {
       const requested = normalizePartNumber(item.partNumber);
-      const actual = [product.code, product.productId].map(normalizePartNumber).filter(Boolean);
+      const actual = [product.partNumber].map(normalizePartNumber).filter(Boolean);
       if (!actual.includes(requested)) errors.push("요청 상품번호(" + item.partNumber + ")와 상세(" + product.code + ")가 다릅니다.");
     }
     return errors;
-  }
-
-  function makeAtoms(products, splitQuantity) {
-    const atoms = [];
-    products.forEach(function (product) {
-      if (splitQuantity) {
-        for (let count = 0; count < product.quantity; count += 1) {
-          atoms.push({ productIndex: product.index, code: product.code, productUrl: product.productUrl || "", name: product.name, quantity: 1, unitJpy: product.unitJpy, totalJpy: product.unitJpy });
-        }
-      } else {
-        atoms.push({ productIndex: product.index, code: product.code, productUrl: product.productUrl || "", name: product.name, quantity: product.quantity, unitJpy: product.unitJpy, totalJpy: product.totalJpy });
-      }
-    });
-    return atoms;
-  }
-
-  function twoGroupDp(atoms, limitJpy) {
-    const total = atoms.reduce(function (sum, item) { return sum + item.totalJpy; }, 0);
-    const dp = new Map([[0, null]]);
-    let transitions = 0;
-    for (let index = 0; index < atoms.length; index += 1) {
-      const atom = atoms[index];
-      const entries = Array.from(dp.keys());
-      for (const sum of entries) {
-        if (transitions >= groupingLimits.maxExactDpTransitions) return null;
-        transitions += 1;
-        const next = sum + atom.totalJpy;
-        if (next <= limitJpy && !dp.has(next)) {
-          if (dp.size >= groupingLimits.maxExactDpStates) return null;
-          dp.set(next, { previous: sum, index: index });
-        }
-      }
-    }
-    let bestSum = null;
-    dp.forEach(function (_, sum) {
-      const other = total - sum;
-      if (other > limitJpy) return;
-      if (bestSum === null || Math.abs(total / 2 - sum) < Math.abs(total / 2 - bestSum)) bestSum = sum;
-    });
-    if (bestSum === null) return null;
-    const selected = new Set();
-    let cursor = bestSum;
-    while (cursor > 0) {
-      const node = dp.get(cursor);
-      selected.add(node.index);
-      cursor = node.previous;
-    }
-    const groups = [[], []];
-    atoms.forEach(function (atom, index) {
-      groups[selected.has(index) ? 0 : 1].push(atom);
-    });
-    return groups;
-  }
-
-  function firstFitDecreasing(atoms, groupCount, limitJpy) {
-    const groups = Array.from({ length: groupCount }, function () { return []; });
-    const sums = Array(groupCount).fill(0);
-    const sorted = atoms.slice().sort(function (a, b) { return b.totalJpy - a.totalJpy; });
-    for (const atom of sorted) {
-      let target = -1;
-      let lowestSum = Infinity;
-      for (let index = 0; index < groupCount; index += 1) {
-        if (sums[index] + atom.totalJpy <= limitJpy && sums[index] < lowestSum) {
-          target = index;
-          lowestSum = sums[index];
-        }
-      }
-      if (target === -1) return null;
-      groups[target].push(atom);
-      sums[target] += atom.totalJpy;
-    }
-    return groups.filter(function (group) { return group.length > 0; });
-  }
-
-  function groupAtomsByProduct(atoms) {
-    const groups = new Map();
-    atoms.forEach(function (atom) {
-      const key = atom.productIndex + ":" + atom.code;
-      const group = groups.get(key) || [];
-      group.push(atom);
-      groups.set(key, group);
-    });
-    return Array.from(groups.values());
-  }
-
-  function recommendAtomGroups(atoms, groupSettings) {
-    if (!atoms.length) return { groups: [], reasonCode: "", warnings: [] };
-    const totalJpy = atoms.reduce(function (sum, item) { return sum + item.totalJpy; }, 0);
-    if (!Number.isInteger(groupSettings.maxGroups) || groupSettings.maxGroups < 1) {
-      return { groups: [], reasonCode: "max_groups_too_small", warnings: [] };
-    }
-    const minimumGroups = Math.max(1, Math.ceil(totalJpy / groupSettings.limitJpy));
-    if (minimumGroups === 1) return { groups: [atoms], reasonCode: "single_group", warnings: [] };
-    if (minimumGroups > groupSettings.maxGroups) {
-      return { groups: [], reasonCode: "max_groups_too_small", warnings: [] };
-    }
-    if (minimumGroups === 2) {
-      const exactTwoGroups = twoGroupDp(atoms, groupSettings.limitJpy);
-      if (exactTwoGroups) return { groups: exactTwoGroups, reasonCode: "grouped", warnings: [] };
-    }
-    for (let count = minimumGroups; count <= groupSettings.maxGroups; count += 1) {
-      const groups = firstFitDecreasing(atoms, count, groupSettings.limitJpy);
-      if (groups) return { groups: groups, reasonCode: "grouped", warnings: [] };
-    }
-    return { groups: [], reasonCode: "grouping_not_found", warnings: [] };
-  }
-
-  function recommendGroups(products, groupSettings) {
-    const atoms = makeAtoms(products, groupSettings.splitQuantity);
-    const totalJpy = atoms.reduce(function (sum, item) { return sum + item.totalJpy; }, 0);
-    const oversize = atoms.filter(function (item) { return item.totalJpy > groupSettings.limitJpy; });
-    if (oversize.length) {
-      const taxableGroups = groupAtomsByProduct(oversize);
-      const groupableAtoms = atoms.filter(function (item) { return item.totalJpy <= groupSettings.limitJpy; });
-      const groupableResult = recommendAtomGroups(groupableAtoms, Object.assign({}, groupSettings, {
-        maxGroups: groupSettings.maxGroups - taxableGroups.length
-      }));
-      const assignedAtomCount = taxableGroups.reduce(function (sum, group) { return sum + group.length; }, 0) +
-        groupableResult.groups.reduce(function (sum, group) { return sum + group.length; }, 0);
-      const complete = assignedAtomCount === atoms.length &&
-        taxableGroups.length + groupableResult.groups.length <= groupSettings.maxGroups;
-      return {
-        totalJpy: totalJpy,
-        groups: groupableResult.groups,
-        taxableGroups: taxableGroups,
-        oversize: oversize,
-        atoms: atoms,
-        complete: complete
-      };
-    }
-    const grouped = recommendAtomGroups(atoms, groupSettings);
-    return { totalJpy: totalJpy, groups: grouped.groups, taxableGroups: [], oversize: [], atoms: atoms, complete: true };
   }
 
   function productsFromGroup(group, products) {
@@ -1439,7 +1353,7 @@ function buildQuoteScript() {
   function buildShippingRequest(products) {
     const first = products[0] || {};
     const metrics = shipmentMetrics(products);
-    const url = new URL(first.shippingApiUrl || defaultShippingApiUrl);
+    const url = allowedShippingApiUrl(first.shippingApiUrl || defaultShippingApiUrl);
     url.searchParams.set("wp", decimalParam(metrics.weightPoint));
     url.searchParams.set("vl", decimalParam(metrics.volumePoint));
     url.searchParams.set("to", cleanText(first.countryIso2 || "KR").toUpperCase());
@@ -1617,8 +1531,8 @@ function buildQuoteScript() {
   const groupSettings = Object.assign({}, settings, {
     limitJpy: settings.limitUsd * settings.usdKrw / settings.jpyKrw
   });
-  const splitQuantityRecommendation = recommendGroups(products, Object.assign({}, groupSettings, { splitQuantity: true }));
-  const rowUnitRecommendation = recommendGroups(products, Object.assign({}, groupSettings, { splitQuantity: false }));
+  const splitQuantityRecommendation = groupingCore.recommendGroups(products, Object.assign({}, groupSettings, { splitQuantity: true }));
+  const rowUnitRecommendation = groupingCore.recommendGroups(products, Object.assign({}, groupSettings, { splitQuantity: false }));
   const singleShipment = await quoteShipment(products, "한 번에 주문");
   const splitQuantityMeasurement = await quoteSplitStrategy(products, splitQuantityRecommendation, "수량 분할 주문");
   const rowUnitMeasurement = await quoteSplitStrategy(products, rowUnitRecommendation, "행 단위 주문");
@@ -1669,8 +1583,10 @@ function buildAddCartScript(items) {
   const items = ${safeJsonForScript(safeItems)};
   const endpoint = "/api_shopping_cart.html?action=add_product&ajax_action=1";
   const failures = [];
+  const successes = [];
+  const fetchTimeoutMs = 15000;
 
-  if (location.hostname !== "www.japan-webike.kr") {
+  if (location.origin !== "https://www.japan-webike.kr") {
     console.error("Webike Korea 페이지에서 실행해 주세요: https://www.japan-webike.kr/");
     return;
   }
@@ -1684,21 +1600,35 @@ function buildAddCartScript(items) {
     return /(?:error|failed|fail|오류|실패)/i.test(String(text || ""));
   }
 
+  async function fetchCartResponse(item) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), fetchTimeoutMs);
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+          "X-Requested-With": "XMLHttpRequest",
+        },
+        body: new URLSearchParams({
+          products_id: item.productsId,
+          cart_quantity: String(item.quantity),
+        }),
+        signal: controller.signal,
+      });
+      return { response, text: await response.text() };
+    } catch (error) {
+      if (error && error.name === "AbortError") throw new Error("Webike 장바구니 응답 시간이 초과되었습니다(15초).");
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   async function addItem(item, index) {
     console.log(\`[\${index + 1}/\${items.length}] \${item.partNumber} 장바구니 담기 요청\`);
-    const response = await fetch(endpoint, {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        "X-Requested-With": "XMLHttpRequest",
-      },
-      body: new URLSearchParams({
-        products_id: item.productsId,
-        cart_quantity: String(item.quantity),
-      }),
-    });
-    const text = await response.text();
+    const { response, text } = await fetchCartResponse(item);
     let parsed = null;
     try {
       parsed = JSON.parse(text);
@@ -1709,6 +1639,7 @@ function buildAddCartScript(items) {
       throw new Error(\`\${response.status} \${text.slice(0, 240)}\`);
     }
     console.log(\`[\${index + 1}/\${items.length}] \${item.partNumber} 완료\`);
+    successes.push(item);
   }
 
   for (const [index, item] of items.entries()) {
@@ -1721,11 +1652,24 @@ function buildAddCartScript(items) {
   }
 
   if (failures.length) {
-    console.error("장바구니 담기 실패 상품:", failures);
+    window.__webikeCartSplitterRetry = async () => {
+      const retryItems = failures.splice(0).map(({ item }) => item);
+      for (const [index, item] of retryItems.entries()) {
+        try {
+          await addItem(item, index);
+        } catch (error) {
+          failures.push({ item, error: error.message });
+          console.error("재시도 실패", item, error);
+        }
+      }
+      console.log("재시도 후 남은 실패: " + failures.length + "개");
+    };
+    console.warn("장바구니 결과: 성공 " + successes.length + "개, 실패 " + failures.length + "개", { successes, failures });
+    console.warn("실패 항목만 재시도하려면 __webikeCartSplitterRetry()를 실행하세요.");
     return;
   }
 
-  console.log(\`완료: \${items.length}개 상품을 장바구니에 담았습니다.\`);
+  console.log(\`장바구니 결과: 성공 \${successes.length}개, 실패 0개\`);
   location.href = "/shopping_cart.html";
 })();
 `;
