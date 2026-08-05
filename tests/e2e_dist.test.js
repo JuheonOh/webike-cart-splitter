@@ -221,6 +221,33 @@ async function testTaxableGroupsFirst(page, baseUrl) {
   await page.waitForFunction(() => window.__webikeCopiedText?.includes('"partNumber": "TAX-001"'));
 }
 
+async function testWizardCartHtmlInput(page, baseUrl) {
+  const cartHtml = fs.readFileSync(
+    path.join(rootDir, "tests", "fixtures", "webike-cart", "table-cart-current.html"),
+    "utf8",
+  );
+
+  await page.goto(`${baseUrl}/webike_quote_wizard.html#step-1`);
+  await page.waitForFunction(() => !document.querySelector("#wizardExchangeRateSource").textContent.includes("확인하는 중"));
+  assert.strictEqual(await page.$eval("#delimitedTab", (tab) => tab.getAttribute("aria-selected")), "true");
+  await page.click("#cartHtmlTab");
+  assert.strictEqual(await page.$eval("#cartHtmlTab", (tab) => tab.getAttribute("aria-selected")), "true");
+  assert.strictEqual(await page.$eval("#cartHtmlInputPanel", (panel) => panel.hidden), false);
+  assert.strictEqual(await page.$eval("#delimitedInputPanel", (panel) => panel.hidden), true);
+
+  await page.fill("#cartHtmlInput", cartHtml);
+  await page.click("#parseInputButton");
+  await page.waitForSelector('[data-step-panel="2"].active');
+  assert.ok(await page.$eval("#inputStatus", (element) => element.textContent.includes("2개 상품")));
+  const previewText = await page.$eval("#inputPreview", (element) => element.textContent);
+  assert.ok(previewText.includes("13225MY9003"));
+  assert.ok(previewText.includes("HONDA OEM Jet, Slow #35"));
+  const generatedQuoteScript = await page.evaluate(() => buildQuoteScript());
+  assert.ok(generatedQuoteScript.includes('"partNumber": "13225MY9003"'));
+  assert.ok(generatedQuoteScript.includes('"quantity": 4'));
+  await page.goto(`${baseUrl}/`);
+}
+
 async function testWizardStepGating(page, baseUrl) {
   await page.goto(`${baseUrl}/webike_quote_wizard.html#step-1`);
   await page.waitForSelector('[data-production-component="wizard-bridge"] [data-production-component="wizard-state"][data-state="steps"]');
@@ -552,6 +579,7 @@ async function main() {
     await testPublicUrlsAndNav(page, baseUrl);
     await testCalculatorManualFlow(page, baseUrl);
     await testTaxableGroupsFirst(page, baseUrl);
+    await testWizardCartHtmlInput(page, baseUrl);
     await testWizardStepGating(page, baseUrl);
     await testWizardTaxableFirstPlan(page, baseUrl);
     await testStyleguide(page, baseUrl);
