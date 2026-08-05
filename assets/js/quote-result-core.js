@@ -46,10 +46,13 @@
     if (!text) return "";
     try {
       const url = new URL(text, "https://www.japan-webike.kr/");
-      const pathname = url.pathname.replace(/\/+$/, "") || "/";
-      return `${url.hostname.toLowerCase()}${pathname}`;
+      if (url.origin !== "https://www.japan-webike.kr" || url.username || url.password || url.search || url.hash ||
+        !/^\/products\/\d+\.html$/i.test(url.pathname)) {
+        return "";
+      }
+      return `https://www.japan-webike.kr${url.pathname}`;
     } catch {
-      return text.replace(/[?#].*$/, "").replace(/\/+$/, "").toLowerCase();
+      return "";
     }
   }
 
@@ -125,6 +128,13 @@
       }
       if (!productId) errors.push(`${label}의 상품 ID가 없습니다.`);
       if (!code) errors.push(`${label}의 상품번호가 없습니다.`);
+      const actualUrl = canonicalProductUrl(item?.productUrl);
+      if (!actualUrl) {
+        errors.push(`${label}의 상품 URL이 올바른 Webike 상품 주소가 아닙니다.`);
+      } else {
+        const urlProductId = (new URL(actualUrl).pathname.match(/^\/products\/(\d+)\.html$/i) || [])[1] || "";
+        if (urlProductId !== productId) errors.push(`${label}의 상품 URL ID와 상품 ID가 다릅니다.`);
+      }
       if (!quantity) errors.push(`${label}의 수량이 올바르지 않습니다.`);
       if (!unitJpy) errors.push(`${label}의 단가가 올바르지 않습니다.`);
       if (!totalJpy || (quantity && unitJpy && totalJpy !== quantity * unitJpy)) {
@@ -141,9 +151,11 @@
         if (requestedPartNumber && !actualIdentifiers.includes(requestedPartNumber)) {
           errors.push(`${label}의 상품번호가 현재 입력과 다릅니다.`);
         }
-        const requestedUrl = canonicalProductUrl(expectedRow.productUrl);
-        const actualUrl = canonicalProductUrl(item?.productUrl);
-        if (requestedUrl && requestedUrl !== actualUrl) {
+        const requestedUrlText = cleanText(expectedRow.productUrl);
+        const requestedUrl = canonicalProductUrl(requestedUrlText);
+        if (requestedUrlText && !requestedUrl) {
+          errors.push(`${label}의 현재 입력 상품 URL이 허용되지 않는 주소입니다.`);
+        } else if (requestedUrl && requestedUrl !== actualUrl) {
           errors.push(`${label}의 상품 URL이 현재 입력과 다릅니다.`);
         }
       }

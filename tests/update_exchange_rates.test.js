@@ -1,9 +1,11 @@
 const assert = require("assert");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const {
   parseForwarderExchangeRates,
   sameExchangeRates,
+  updateExchangeRates,
 } = require("../scripts/update-exchange-rates");
 
 const fixturePath = path.join(__dirname, "fixtures", "exchange-rates", "forwarder-sample.html");
@@ -54,4 +56,58 @@ assert.throws(
   /미국 USD 수입환율/,
 );
 
-console.log("update_exchange_rates tests passed");
+async function runUpdateExchangeRatesTests() {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "webike-rates-"));
+  const outputPath = path.join(tempDir, "exchange-rates.json");
+  const previousSourceFile = process.env.EXCHANGE_RATE_SOURCE_FILE;
+  delete process.env.EXCHANGE_RATE_SOURCE_FILE;
+  try {
+    const response = { ok: true, status: 200, text: async () => fixtureHtml };
+    const first = await updateExchangeRates({
+      outputPath,
+      fetchImpl: async () => response,
+    });
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(outputPath, "utf8")), first);
+
+    const preservedUpdatedAt = "2026-01-01T00:00:00+09:00";
+    fs.writeFileSync(outputPath, `${JSON.stringify({ ...first, updatedAt: preservedUpdatedAt })}\n`);
+    const second = await updateExchangeRates({
+      outputPath,
+      fetchImpl: async () => response,
+    });
+    assert.strictEqual(second.updatedAt, preservedUpdatedAt, "동일 환율은 기존 updatedAt을 보존해야 함");
+
+    await assert.rejects(
+      () => updateExchangeRates({
+        outputPath,
+        fetchImpl: async () => ({ ok: false, status: 503 }),
+      }),
+      /HTTP 503/,
+    );
+    await assert.rejects(
+      () => updateExchangeRates({
+        outputPath,
+        timeoutMs: 5,
+        fetchImpl: (_url, { signal }) => new Promise((resolve, reject) => {
+          signal.addEventListener("abort", () => {
+            const error = new Error("aborted");
+            error.name = "AbortError";
+            reject(error);
+          });
+        }),
+      }),
+      /시간 초과 \(5ms\)/,
+    );
+  } finally {
+    if (previousSourceFile === undefined) delete process.env.EXCHANGE_RATE_SOURCE_FILE;
+    else process.env.EXCHANGE_RATE_SOURCE_FILE = previousSourceFile;
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+runUpdateExchangeRatesTests()
+  .then(() => console.log("update_exchange_rates tests passed"))
+  .catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });

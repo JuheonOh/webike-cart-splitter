@@ -13,6 +13,7 @@ return {
   renderSummary,
   renderGroups,
   renderProducts,
+  isAllowedWebikeProductUrl,
   readStoredDraft,
   removeStoredDraft,
   writeStoredDraft,
@@ -42,6 +43,11 @@ function makeSettings(overrides = {}) {
   settings.limitJpy = (settings.limitUsd * settings.usdKrw) / settings.jpyKrw;
   return settings;
 }
+
+assert.strictEqual(api.csvCell("normal"), "normal");
+assert.strictEqual(api.csvCell("=HYPERLINK(\"https://evil.example\")"), "\"'=HYPERLINK(\"\"https://evil.example\"\")\"");
+assert.strictEqual(api.csvCell("+SUM(1,2)"), "\"'+SUM(1,2)\"");
+assert.strictEqual(api.csvCell("@malicious"), "'@malicious");
 
 function makeFakeElement({ text = "", value = "", dataset = {}, attrs = {} } = {}) {
   return {
@@ -434,6 +440,15 @@ assert(productHtml.includes('class="result-product-unit-jpy result-product-edit"
 assert(productHtml.includes('value="1"'));
 assert(productHtml.includes('value="100"'));
 
+assert.strictEqual(uiApi.isAllowedWebikeProductUrl("https://www.japan-webike.kr/products/25427339.html"), true);
+assert.strictEqual(uiApi.isAllowedWebikeProductUrl("http://www.japan-webike.kr/products/25427339.html"), false);
+assert.strictEqual(uiApi.isAllowedWebikeProductUrl("https://evil.example/products/25427339.html"), false);
+const unsafeUrlHtml = uiApi.renderProducts([makeProduct(0, "SAFE-1", "unsafe", 1, 100), {
+  index: 1, code: "BAD-1", productUrl: "https://evil.example/products/1.html", name: "unsafe", quantity: 1, unitJpy: 100, totalJpy: 100,
+}]);
+assert(unsafeUrlHtml.includes("https://evil.example/products/1.html"));
+assert(!unsafeUrlHtml.includes('href="https://evil.example/products/1.html"'));
+
 const groupHtml = uiApi.renderGroups(recommendation, settings);
 assert(groupHtml.includes('data-action="copy-group-cart-script"'));
 assert(groupHtml.includes('data-group-index="0"'));
@@ -507,6 +522,9 @@ assert.strictEqual(
 const unsafeCartScript = uiApi.buildWebikeCartScript(unsafeProducts);
 assert(!unsafeCartScript.includes("<script>"), "generated script must escape HTML-like product data");
 assert(unsafeCartScript.includes("\\u003cscript\\u003ealert(1)\\u003c/script\\u003e"));
+assert(unsafeCartScript.includes("allowedProductUrl"));
+assert(webikeCartScript.includes("fetchTextWithTimeout"));
+assert(webikeCartScript.includes("__webikeCartSplitterRetry"));
 
 const oversizeRecommendation = api.recommendGroups(unsafeProducts, makeSettings({ limitUsd: 0.5 }));
 const oversizeHtml = uiApi.renderGroups(oversizeRecommendation, makeSettings({ limitUsd: 0.5 }));
@@ -766,6 +784,17 @@ assert.deepStrictEqual(storedDraft.groupProgress[draftGroupKey], {
 });
 assert.strictEqual(uiApi.removeStoredDraft(draftStorage), true);
 assert.strictEqual(uiApi.readStoredDraft(draftStorage), null);
+
+const expiredDraftStorage = makeMemoryStorage();
+expiredDraftStorage.setItem("webike-cart-splitter-draft-v1", JSON.stringify({
+  version: 1,
+  savedAt: "2020-01-01T00:00:00.000Z",
+  inputMode: "manual",
+  settings: makeSettings(),
+  manualRows: [],
+}));
+assert.strictEqual(uiApi.readStoredDraft(expiredDraftStorage), null);
+assert.strictEqual(expiredDraftStorage.getItem("webike-cart-splitter-draft-v1"), null);
 
 assert.deepStrictEqual(api.normalizeExchangeRateData({
   source: "forwarder.kr",

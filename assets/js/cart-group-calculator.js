@@ -9,8 +9,10 @@ const XLSX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadshee
 const ZIP_MIME_TYPE = "application/zip";
 const EXCHANGE_RATE_DATA_URL = "data/exchange-rates.json";
 const WEBIKE_CART_SCRIPT_HOST = "www.japan-webike.kr";
+const WEBIKE_PRODUCT_URL_PATTERN = /^\/products\/\d+\.html$/;
 const DRAFT_STORAGE_KEY = "webike-cart-splitter-draft-v1";
 const DRAFT_VERSION = 1;
+const DRAFT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const GROUPING_INPUT_ERROR_CODES = new Set([
   "invalid_input",
   "product_count_limit_exceeded",
@@ -297,7 +299,14 @@ function normalizeDraft(draft) {
 function readStoredDraft(storage) {
   try {
     const target = storage || window.localStorage;
-    return normalizeDraft(JSON.parse(target.getItem(DRAFT_STORAGE_KEY) || "null"));
+    const draft = normalizeDraft(JSON.parse(target.getItem(DRAFT_STORAGE_KEY) || "null"));
+    if (!draft) return null;
+    const savedAt = Date.parse(draft.savedAt);
+    if (!Number.isFinite(savedAt) || Date.now() - savedAt > DRAFT_MAX_AGE_MS) {
+      target.removeItem(DRAFT_STORAGE_KEY);
+      return null;
+    }
+    return draft;
   } catch {
     return null;
   }
@@ -380,7 +389,7 @@ function renderProducts(products) {
   const rows = products.map((item) => `
     <tr data-product-index="${item.index}">
       <td>${escapeHtml(item.code)}</td>
-      <td>${item.productUrl ? `<a href="${escapeHtml(item.productUrl)}" target="_blank" rel="noopener noreferrer">열기</a>` : "-"}</td>
+      <td>${isAllowedWebikeProductUrl(item.productUrl) ? `<a href="${escapeHtml(item.productUrl)}" target="_blank" rel="noopener noreferrer">열기</a>` : (item.productUrl ? escapeHtml(item.productUrl) : "-")}</td>
       <td>${escapeHtml(item.name)}</td>
       <td class="num">
         <input class="result-product-quantity result-product-edit" type="text" inputmode="numeric" aria-label="${escapeHtml(item.code)} 수량" value="${escapeHtml(item.quantity)}">
@@ -423,6 +432,17 @@ function renderProducts(products) {
   `;
 }
 
+function isAllowedWebikeProductUrl(value) {
+  try {
+    const url = new URL(String(value || "").trim());
+    return url.origin === `https://${WEBIKE_CART_SCRIPT_HOST}`
+      && !url.username && !url.password && !url.search && !url.hash
+      && WEBIKE_PRODUCT_URL_PATTERN.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
 function cartScriptItemFromProduct(item) {
   const productUrl = String(item.productUrl || "").trim();
   const code = String(item.code || "").trim();
@@ -457,14 +477,25 @@ function buildWebikeCartScript(products) {
   const searchEndpoint = "/api-search-es.html";
   const cartEndpoint = "/api_shopping_cart.html?action=add_product&ajax_action=1";
   const failures = [];
+  let successCount = 0;
 
-  if (location.hostname !== requiredHost) {
+  if (location.origin !== \`https://\${requiredHost}\`) {
     console.error(\`Webike 페이지에서 실행해 주세요: https://\${requiredHost}/\`);
     return;
   }
 
   function normalizePartNumber(value) {
     return String(value || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  }
+
+  function allowedProductUrl(value) {
+    try {
+      const url = new URL(String(value || "").trim(), location.origin);
+      return url.origin === "https://" + requiredHost && !url.username && !url.password && !url.search && !url.hash
+        && /^\\/products\\/\\d+\\.html$/.test(url.pathname);
+    } catch {
+      return false;
+    }
   }
 
   function collectStrings(value, output = []) {
@@ -518,20 +549,40 @@ function buildWebikeCartScript(products) {
     return "";
   }
 
+  async function fetchTextWithTimeout(url, options = {}, timeoutMs = 15000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, { ...options, signal: controller.signal });
+      const text = await response.text();
+      return { response, text };
+    } catch (error) {
+      if (error?.name === "AbortError") throw new Error(\`요청 시간 초과(\${timeoutMs / 1000}초): \${url}\`);
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   async function fetchJson(url) {
-    const response = await fetch(url, { credentials: "include" });
+    const { response, text } = await fetchTextWithTimeout(url, { credentials: "include" });
     if (!response.ok) throw new Error(\`HTTP \${response.status}: \${url}\`);
-    return response.json();
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error(\`JSON 응답을 파싱하지 못했습니다: \${url}\`);
+    }
   }
 
   async function fetchText(url) {
-    const response = await fetch(url, { credentials: "include" });
+    const { response, text } = await fetchTextWithTimeout(url, { credentials: "include" });
     if (!response.ok) throw new Error(\`HTTP \${response.status}: \${url}\`);
-    return response.text();
+    return text;
   }
 
   async function resolveProduct(item) {
     let productUrl = item.productUrl ? new URL(item.productUrl, location.origin).href : "";
+    if (productUrl && !allowedProductUrl(productUrl)) throw new Error(\`허용되지 않은 Webike 상품 URL입니다: \${productUrl}\`);
     if (!productUrl) {
       const searchParams = new URLSearchParams({
         search: "",
@@ -542,6 +593,7 @@ function buildWebikeCartScript(products) {
       const searchData = await fetchJson(\`\${searchEndpoint}?\${searchParams}\`);
       productUrl = productUrlFromSearchData(searchData, item);
     }
+    if (!allowedProductUrl(productUrl)) throw new Error(\`허용되지 않은 Webike 상품 URL입니다: \${productUrl}\`);
     const html = await fetchText(productUrl);
     const doc = new DOMParser().parseFromString(html, "text/html");
     const productsId = firstFieldValue(doc, [
@@ -551,8 +603,15 @@ function buildWebikeCartScript(products) {
       "[data-prdid]",
     ]) || jsVariable(html, "productsId");
     const detailPartNumber = firstFieldValue(doc, ["#product_id"]) || jsVariable(html, "productsModel");
+    const urlProductId = (new URL(productUrl).pathname.match(/^\\/products\\/(\\d+)\\.html$/) || [])[1] || "";
 
     if (!productsId) throw new Error(\`\${item.partNumber} products_id를 찾지 못했습니다.\`);
+    if (!urlProductId || String(productsId).trim() !== urlProductId) {
+      throw new Error(\`상품 URL ID(\${urlProductId || "없음"})와 상세 상품 ID(\${productsId})가 다릅니다.\`);
+    }
+    if (!detailPartNumber) {
+      throw new Error(\`\${item.partNumber || item.productUrl} 상세 페이지에서 부품번호를 확인하지 못했습니다.\`);
+    }
     if (item.partNumber && detailPartNumber && normalizePartNumber(detailPartNumber) !== normalizePartNumber(item.partNumber)) {
       throw new Error(\`요청 \${item.partNumber}, 상세 \${detailPartNumber} 부품번호가 다릅니다.\`);
     }
@@ -576,7 +635,7 @@ function buildWebikeCartScript(products) {
   }
 
   async function addToCart(item) {
-    const response = await fetch(cartEndpoint, {
+    const { response, text } = await fetchTextWithTimeout(cartEndpoint, {
       method: "POST",
       credentials: "include",
       headers: {
@@ -588,7 +647,6 @@ function buildWebikeCartScript(products) {
         cart_quantity: String(item.quantity),
       }),
     });
-    const text = await response.text();
     let parsed = null;
     try {
       parsed = JSON.parse(text);
@@ -600,22 +658,33 @@ function buildWebikeCartScript(products) {
     }
   }
 
-  for (const [index, item] of items.entries()) {
-    const prefix = \`[\${index + 1}/\${items.length}] \${item.partNumber || item.productUrl}\`;
-    try {
-      console.log(\`\${prefix} 검색 및 상품 확인\`);
-      const resolved = await resolveProduct(item);
-      console.log(\`\${prefix} 장바구니 담기 요청: products_id \${resolved.productsId}, 수량 \${resolved.quantity}\`);
-      await addToCart(resolved);
-      console.log(\`\${prefix} 완료\`);
-    } catch (error) {
-      failures.push({ item, error: error.message });
-      console.error(\`\${prefix} 실패\`, error);
+  async function runItems(runItems) {
+    for (const [index, item] of runItems.entries()) {
+      const prefix = \`[\${index + 1}/\${runItems.length}] \${item.partNumber || item.productUrl}\`;
+      try {
+        console.log(\`\${prefix} 검색 및 상품 확인\`);
+        const resolved = await resolveProduct(item);
+        console.log(\`\${prefix} 장바구니 담기 요청: products_id \${resolved.productsId}, 수량 \${resolved.quantity}\`);
+        await addToCart(resolved);
+        successCount += 1;
+        console.log(\`\${prefix} 완료\`);
+      } catch (error) {
+        failures.push({ item, error: error.message });
+        console.error(\`\${prefix} 실패\`, error);
+      }
     }
   }
 
+  await runItems(items);
+
   if (failures.length) {
-    console.error("장바구니 담기 실패 상품:", failures);
+    window.__webikeCartSplitterRetry = async () => {
+      const retryItems = failures.splice(0).map(({ item }) => item);
+      console.log(\`실패 상품 재시도: \${retryItems.length}개\`);
+      await runItems(retryItems);
+      console.log(\`재시도 후 남은 실패: \${failures.length}개\`);
+    };
+    console.error(\`장바구니 담기 결과: 성공 \${successCount}개, 실패 \${failures.length}개. 실패 상품(재시도: __webikeCartSplitterRetry()):\`, failures);
     return;
   }
 

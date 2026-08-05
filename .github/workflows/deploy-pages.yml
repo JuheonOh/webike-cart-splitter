@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
 
@@ -18,11 +18,73 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  # Normal code pushes only need to read the repository. They never write back
+  # to it, so a compromised build cannot use the Actions token to push commits.
+  deploy-push:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify unit tests
+        run: npm test
+
+      - name: Build Vite artifact
+        run: npm run build
+
+      - name: Audit build artifact
+        run: npm run test:artifact
+        env:
+          MAX_EXCHANGE_RATE_STALE_DAYS: "14"
+
+      - name: Install Playwright browsers
+        run: npm run test:e2e:install
+
+      - name: Verify built artifact E2E
+        run: npm run test:e2e
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      - name: Deploy Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  # Scheduled/manual runs refresh the exchange-rate file, verify and build it,
+  # then commit the validated data before deploying the same artifact.
+  # This is the only job that needs repository write access.
+  update-exchange-rates-and-deploy:
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,7 +99,6 @@ jobs:
         run: npm ci
 
       - name: Update exchange rates
-        if: github.event_name != 'push'
         run: node scripts/update-exchange-rates.js
 
       - name: Verify unit tests
@@ -58,7 +119,6 @@ jobs:
         run: npm run test:e2e
 
       - name: Commit exchange rate data
-        if: github.event_name != 'push'
         run: |
           if git diff --quiet -- data/exchange-rates.json; then
             echo "No exchange rate changes."

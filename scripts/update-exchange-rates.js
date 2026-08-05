@@ -3,6 +3,7 @@ const path = require("path");
 
 const DEFAULT_SOURCE_URL = "https://www.forwarder.kr/curr/index.php?curr=ex_rate";
 const DEFAULT_OUTPUT_PATH = path.join("data", "exchange-rates.json");
+const DEFAULT_TIMEOUT_MS = 15_000;
 
 function decodeHtmlEntities(value) {
   return String(value || "")
@@ -108,23 +109,43 @@ async function readExistingJson(outputPath) {
   }
 }
 
-async function readSourceHtml(sourceUrl) {
+async function readSourceHtml(
+  sourceUrl,
+  { fetchImpl = globalThis.fetch, timeoutMs = DEFAULT_TIMEOUT_MS } = {},
+) {
   if (process.env.EXCHANGE_RATE_SOURCE_FILE) {
     return fs.readFile(process.env.EXCHANGE_RATE_SOURCE_FILE, "utf8");
   }
 
-  const response = await fetch(sourceUrl);
-  if (!response.ok) {
-    throw new Error(`환율 페이지 요청 실패: HTTP ${response.status}`);
+  if (typeof fetchImpl !== "function") {
+    throw new Error("환율 페이지 요청을 위한 fetch 구현이 없습니다.");
   }
-  return response.text();
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetchImpl(sourceUrl, { signal: controller.signal });
+    if (!response || !response.ok) {
+      throw new Error(`환율 페이지 요청 실패: HTTP ${response?.status ?? "응답 없음"}`);
+    }
+    return await response.text();
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(`환율 페이지 요청 시간 초과 (${timeoutMs}ms)`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function updateExchangeRates({
   sourceUrl = process.env.EXCHANGE_RATE_SOURCE_URL || DEFAULT_SOURCE_URL,
   outputPath = process.env.EXCHANGE_RATE_OUTPUT_PATH || DEFAULT_OUTPUT_PATH,
+  fetchImpl = globalThis.fetch,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
 } = {}) {
-  const html = await readSourceHtml(sourceUrl);
+  const html = await readSourceHtml(sourceUrl, { fetchImpl, timeoutMs });
   const nextData = parseForwarderExchangeRates(html, sourceUrl);
   const existingData = await readExistingJson(outputPath);
 
@@ -133,7 +154,13 @@ async function updateExchangeRates({
   }
 
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
-  await fs.writeFile(outputPath, `${JSON.stringify(nextData, null, 2)}\n`);
+  const tempPath = `${outputPath}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    await fs.writeFile(tempPath, `${JSON.stringify(nextData, null, 2)}\n`, "utf8");
+    await fs.rename(tempPath, outputPath);
+  } finally {
+    await fs.rm(tempPath, { force: true }).catch(() => {});
+  }
   return nextData;
 }
 
@@ -151,9 +178,11 @@ if (require.main === module) {
 module.exports = {
   DEFAULT_OUTPUT_PATH,
   DEFAULT_SOURCE_URL,
+  DEFAULT_TIMEOUT_MS,
   htmlToLines,
   parseForwarderExchangeRates,
   parseImportRate,
   sameExchangeRates,
+  readSourceHtml,
   updateExchangeRates,
 };

@@ -196,6 +196,42 @@ async function testCalculatorManualFlow(page, baseUrl) {
   assert.strictEqual(await page.$eval("#exportXlsxButton", (button) => button.disabled), true);
 }
 
+async function testCalculatorDraftRestoreAndCorruption(page, baseUrl) {
+  await page.goto(`${baseUrl}/cart_group_calculator.html`);
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.click("input[name='inputMode'][value='manual']");
+  await page.fill(
+    "#bulkPasteInput",
+    [
+      "상품번호\t상품명\t수량\t단가JPY",
+      "DRAFT-001\tDraft item\t2\t1800",
+    ].join("\n"),
+  );
+  await page.click("#applyBulkPasteButton");
+  await page.click("#analyzeButton");
+  await page.waitForSelector('[data-production-component="calculator-state"][data-state="analyzed"]');
+  await page.fill(".result-product-quantity", "3");
+  await page.waitForFunction(() => {
+    const draft = JSON.parse(localStorage.getItem("webike-cart-splitter-draft-v1") || "null");
+    return draft?.analysis?.dirtyProductRows?.some((row) => row.quantity === "3");
+  });
+
+  await page.reload();
+  await page.waitForSelector('[data-production-component="calculator-state"][data-state="dirty-disabled"]');
+  assert.strictEqual(await page.$eval(".result-product-quantity", (input) => input.value), "3");
+  assert.strictEqual(await page.$eval("#productEditDirtyNotice", (element) => element.hidden), false);
+  assert.strictEqual(await page.$eval('[data-action="copy-group-cart-script"]', (element) => element.disabled), true);
+
+  await page.evaluate(() => localStorage.setItem("webike-cart-splitter-draft-v1", "{broken-json"));
+  await page.reload();
+  await page.waitForSelector('[data-production-component="calculator-state"][data-state="initial"]');
+  assert.strictEqual(await page.$eval("#errorBox", (element) => getComputedStyle(element).display), "none");
+  assert.strictEqual(await page.$eval("#errorBox", (element) => element.textContent), "");
+  assert.strictEqual(await page.$$eval("#manualRows tr", (rows) => rows.length), 1);
+  assert.strictEqual(await page.$eval(".manual-code", (input) => input.value), "");
+}
+
 async function testTaxableGroupsFirst(page, baseUrl) {
   await page.goto(`${baseUrl}/cart_group_calculator.html`);
   await page.click("input[name='inputMode'][value='manual']");
@@ -275,12 +311,12 @@ async function testWizardStepGating(page, baseUrl) {
 
   await page.fill(
     "#pasteInput",
-    "E2E-001,2,E2E Wizard Item,1500,https://example.com/item/E2E-001",
+    "E2E-001,2,E2E Wizard Item,1500,https://www.japan-webike.kr/products/900001.html",
   );
   await page.click("#parseInputButton");
   await page.waitForFunction(() => !document.querySelector('[data-step-target="2"]').disabled);
   assert.ok(await page.$eval("#inputPreview", (box) => box.textContent.includes("E2E Wizard Item")));
-  assert.ok(await page.$eval("#inputPreview", (box) => box.textContent.includes("https://example.com/item/E2E-001")));
+  assert.ok(await page.$eval("#inputPreview", (box) => box.textContent.includes("https://www.japan-webike.kr/products/900001.html")));
   await page.waitForSelector('[data-production-component="wizard-state"][data-state="script"]');
   assert.strictEqual(await page.$eval('[data-step-target="3"]', (button) => button.disabled), false);
   const generatedQuoteScript = await page.evaluate(() => buildQuoteScript());
@@ -316,7 +352,7 @@ async function testWizardStepGating(page, baseUrl) {
       index: 0,
       code: "E2E-001",
       productId: "900001",
-      productUrl: "https://example.com/item/E2E-001",
+      productUrl: "https://www.japan-webike.kr/products/900001.html",
       name: "E2E Wizard Item",
       quantity: 2,
       unitJpy: 1500,
@@ -434,14 +470,44 @@ async function testWizardStepGating(page, baseUrl) {
   assert.strictEqual(await page.$eval('[data-step-target="2"]', (button) => button.disabled), true);
 }
 
+async function testWizardHashHistoryAndLockedStep(page, baseUrl) {
+  await page.goto(`${baseUrl}/webike_quote_wizard.html#step-5`);
+  await page.waitForSelector('[data-production-component="wizard-bridge"] [data-production-component="wizard-state"][data-state="steps"]');
+  await page.waitForSelector('[data-step-panel="1"].active');
+  assert.strictEqual(await page.evaluate(() => window.location.hash), "#step-1");
+  assert.strictEqual(await page.$eval('[data-step-target="5"]', (button) => button.disabled), true);
+
+  await page.fill("#pasteInput", "HASH-001,1,Hash item,1200,https://www.japan-webike.kr/products/920001.html");
+  await page.click("#parseInputButton");
+  await page.waitForFunction(() => !document.querySelector('[data-step-target="2"]').disabled);
+  await page.click('[data-step-target="2"]');
+  await page.waitForSelector('[data-step-panel="2"].active');
+  assert.strictEqual(await page.evaluate(() => window.location.hash), "#step-2");
+
+  await page.goBack();
+  await page.waitForSelector('[data-step-panel="1"].active');
+  assert.strictEqual(await page.evaluate(() => window.location.hash), "#step-1");
+  await page.goForward();
+  await page.waitForSelector('[data-step-panel="2"].active');
+  assert.strictEqual(await page.evaluate(() => window.location.hash), "#step-2");
+}
+
+async function testWizardPreviewDoesNotLinkifyUntrustedUrls(page, baseUrl) {
+  await page.goto(`${baseUrl}/webike_quote_wizard.html#step-1`);
+  await page.fill("#pasteInput", "URL-001,1,URL item,1200,javascript:alert(1)");
+  await page.click("#parseInputButton");
+  await page.waitForSelector('[data-step-panel="2"].active');
+  assert.strictEqual(await page.$$eval("#inputPreview a", (links) => links.length), 0);
+}
+
 async function testWizardTaxableFirstPlan(page, baseUrl) {
   await page.goto(`${baseUrl}/webike_quote_wizard.html#step-1`);
   await page.waitForFunction(() => !document.querySelector("#wizardExchangeRateSource").textContent.includes("확인하는 중"));
   await page.fill(
     "#pasteInput",
     [
-      "BIG-001,1,Taxable wizard item,30000,https://example.com/item/BIG-001",
-      "SMALL-001,1,Duty-free wizard item,1000,https://example.com/item/SMALL-001",
+      "BIG-001,1,Taxable wizard item,30000,https://www.japan-webike.kr/products/910001.html",
+      "SMALL-001,1,Duty-free wizard item,1000,https://www.japan-webike.kr/products/910002.html",
     ].join("\n"),
   );
   await page.click("#parseInputButton");
@@ -452,7 +518,7 @@ async function testWizardTaxableFirstPlan(page, baseUrl) {
       index: 0,
       code: "BIG-001",
       productId: "910001",
-      productUrl: "https://example.com/item/BIG-001",
+      productUrl: "https://www.japan-webike.kr/products/910001.html",
       name: "Taxable wizard item",
       quantity: 1,
       unitJpy: 30000,
@@ -462,7 +528,7 @@ async function testWizardTaxableFirstPlan(page, baseUrl) {
       index: 1,
       code: "SMALL-001",
       productId: "910002",
-      productUrl: "https://example.com/item/SMALL-001",
+      productUrl: "https://www.japan-webike.kr/products/910002.html",
       name: "Duty-free wizard item",
       quantity: 1,
       unitJpy: 1000,
@@ -578,9 +644,12 @@ async function main() {
   try {
     await testPublicUrlsAndNav(page, baseUrl);
     await testCalculatorManualFlow(page, baseUrl);
+    await testCalculatorDraftRestoreAndCorruption(page, baseUrl);
     await testTaxableGroupsFirst(page, baseUrl);
     await testWizardCartHtmlInput(page, baseUrl);
     await testWizardStepGating(page, baseUrl);
+    await testWizardHashHistoryAndLockedStep(page, baseUrl);
+    await testWizardPreviewDoesNotLinkifyUntrustedUrls(page, baseUrl);
     await testWizardTaxableFirstPlan(page, baseUrl);
     await testStyleguide(page, baseUrl);
   } finally {
