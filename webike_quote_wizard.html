@@ -159,6 +159,38 @@
       margin-top: 12px;
     }
 
+    .input-tabs {
+      display: inline-flex;
+      gap: 4px;
+      margin-bottom: 14px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: #eef2f6;
+    }
+
+    .input-tab {
+      background: transparent;
+      color: #25324b;
+    }
+
+    .input-tab:hover:not(:disabled) {
+      background: #dde5ef;
+    }
+
+    .input-tab[aria-selected="true"] {
+      background: var(--primary);
+      color: #fff;
+    }
+
+    .input-tab[aria-selected="true"]:hover {
+      background: var(--primary-strong);
+    }
+
+    .input-tab-panel[hidden] {
+      display: none;
+    }
+
     .wizard {
       display: grid;
       grid-template-columns: 260px minmax(0, 1fr);
@@ -547,21 +579,31 @@
         <div class="panel-head">
           <div>
             <h2>1단계. 상품 입력</h2>
-            <p class="subtle">CSV 파일을 선택하거나 엑셀/CSV 내용을 붙여넣습니다.</p>
+            <p class="subtle">Webike 장바구니 HTML 또는 CSV/TSV 상품 목록을 입력합니다.</p>
           </div>
         </div>
-        <div class="grid">
-          <div>
-            <label for="csvFile">CSV 파일</label>
-            <input id="csvFile" type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values">
-          </div>
-          <div>
-            <label for="inputHint">권장 컬럼</label>
-            <input id="inputHint" type="text" value="상품번호,수량,상품명,단가JPY,상품URL" readonly>
-          </div>
-          <div class="wide">
-            <label for="pasteInput">CSV/TSV 붙여넣기</label>
-            <textarea id="pasteInput" spellcheck="false" placeholder="상품번호,수량,상품명,단가JPY,상품URL&#10;34901KY2702,2,헤드라이트 밸브,,"></textarea>
+        <div class="input-tabs" role="tablist" aria-label="상품 입력 방식">
+          <button type="button" class="input-tab" id="cartHtmlTab" role="tab" aria-selected="false" aria-controls="cartHtmlInputPanel" data-input-mode="html">장바구니 HTML</button>
+          <button type="button" class="input-tab" id="delimitedTab" role="tab" aria-selected="true" aria-controls="delimitedInputPanel" data-input-mode="delimited">CSV/TSV</button>
+        </div>
+        <div id="cartHtmlInputPanel" class="input-tab-panel" role="tabpanel" aria-labelledby="cartHtmlTab" hidden>
+          <label for="cartHtmlInput">HTML 붙여넣기</label>
+          <textarea id="cartHtmlInput" spellcheck="false" placeholder="Webike 장바구니의 table-cart HTML을 여기에 붙여넣으세요."></textarea>
+        </div>
+        <div id="delimitedInputPanel" class="input-tab-panel" role="tabpanel" aria-labelledby="delimitedTab">
+          <div class="grid">
+            <div>
+              <label for="csvFile">CSV 파일</label>
+              <input id="csvFile" type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values">
+            </div>
+            <div>
+              <label for="inputHint">권장 컬럼</label>
+              <input id="inputHint" type="text" value="상품번호,수량,상품명,단가JPY,상품URL" readonly>
+            </div>
+            <div class="wide">
+              <label for="pasteInput">CSV/TSV 붙여넣기</label>
+              <textarea id="pasteInput" spellcheck="false" placeholder="상품번호,수량,상품명,단가JPY,상품URL&#10;34901KY2702,2,헤드라이트 밸브,,"></textarea>
+            </div>
           </div>
         </div>
         <div class="button-row">
@@ -666,6 +708,7 @@ const STEP_COUNT = 5;
 
 const state = {
   step: 1,
+  inputMode: "delimited",
   inputRows: [],
   quoteScript: "",
   quoteResult: null,
@@ -873,6 +916,54 @@ function parseInputRows(text) {
     errors.push(`수량 분할 계산 단위는 최대 ${GROUPING_LIMITS.maxAtoms}개까지 만들 수 있습니다.`);
   }
   return { rows, errors };
+}
+
+function parseCartHtmlInput(html) {
+  const text = String(html || "").trim();
+  if (!text) return { rows: [], errors: ["분석할 장바구니 HTML을 붙여넣어 주세요."] };
+
+  const products = cartCore.parseProducts(text);
+  if (!products.length) {
+    return { rows: [], errors: ["상품 행을 찾지 못했습니다. table-cart 영역의 HTML을 붙여넣었는지 확인해 주세요."] };
+  }
+  if (products.length > GROUPING_LIMITS.maxProducts) {
+    return { rows: [], errors: [`상품은 최대 ${GROUPING_LIMITS.maxProducts}개까지 입력할 수 있습니다.`] };
+  }
+
+  const quantityError = products.find((product) => product.quantity > GROUPING_LIMITS.maxQuantityPerProduct);
+  if (quantityError) {
+    return {
+      rows: [],
+      errors: [`${quantityError.code} 수량은 ${GROUPING_LIMITS.maxQuantityPerProduct} 이하여야 합니다.`],
+    };
+  }
+
+  const atomCount = products.reduce((sum, product) => sum + product.quantity, 0);
+  if (atomCount > GROUPING_LIMITS.maxAtoms) {
+    return { rows: [], errors: [`수량 분할 계산 단위는 최대 ${GROUPING_LIMITS.maxAtoms}개까지 만들 수 있습니다.`] };
+  }
+
+  return {
+    rows: products.map((product) => ({
+      partNumber: product.code,
+      productUrl: product.productUrl || "",
+      quantity: product.quantity,
+      name: product.name,
+      unitJpy: product.unitJpy,
+    })),
+    errors: [],
+  };
+}
+
+function setInputMode(mode) {
+  state.inputMode = mode === "delimited" ? "delimited" : "html";
+  $$("[data-input-mode]").forEach((tab) => {
+    const selected = tab.dataset.inputMode === state.inputMode;
+    tab.setAttribute("aria-selected", selected ? "true" : "false");
+    tab.tabIndex = selected ? 0 : -1;
+  });
+  $("#cartHtmlInputPanel").hidden = state.inputMode !== "html";
+  $("#delimitedInputPanel").hidden = state.inputMode !== "delimited";
 }
 
 function renderInputPreview() {
@@ -2086,6 +2177,7 @@ async function handleFileInput(file) {
   if (!file) return;
   const text = await file.text();
   $("#pasteInput").value = text;
+  setInputMode("delimited");
 }
 
 $("#csvFile").addEventListener("change", (event) => {
@@ -2093,6 +2185,18 @@ $("#csvFile").addEventListener("change", (event) => {
     showStatus("#inputStatus", "bad", error.message);
   });
 });
+
+$$('[data-input-mode]').forEach((tab) => {
+  tab.addEventListener("click", () => setInputMode(tab.dataset.inputMode));
+  tab.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+    event.preventDefault();
+    const nextMode = state.inputMode === "html" ? "delimited" : "html";
+    setInputMode(nextMode);
+    $(`[data-input-mode="${nextMode}"]`).focus();
+  });
+});
+
 function resetWizardDerivedState() {
   state.quoteScript = "";
   state.quoteResult = null;
@@ -2133,7 +2237,9 @@ function refreshQuoteScript({ reportError = false } = {}) {
 
 $("#parseInputButton").addEventListener("click", async () => {
   await wizardExchangeRateLoadPromise;
-  const result = parseInputRows($("#pasteInput").value);
+  const result = state.inputMode === "html"
+    ? parseCartHtmlInput($("#cartHtmlInput").value)
+    : parseInputRows($("#pasteInput").value);
   const settingsErrors = validateWizardSettings(getSettings());
   if (result.errors.length || settingsErrors.length) {
     state.inputRows = [];
@@ -2154,12 +2260,15 @@ $("#parseInputButton").addEventListener("click", async () => {
 $("#clearInputButton").addEventListener("click", () => {
   $("#csvFile").value = "";
   $("#pasteInput").value = "";
+  $("#cartHtmlInput").value = "";
   state.inputRows = [];
   resetWizardDerivedState();
   renderInputPreview();
   clearStatus("#inputStatus");
   updateStepState();
 });
+
+setInputMode("delimited");
 
 $("#copyQuoteScriptButton").addEventListener("click", async () => {
   if (!refreshQuoteScript({ reportError: true })) return;
