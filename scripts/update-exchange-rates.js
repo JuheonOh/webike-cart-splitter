@@ -7,17 +7,18 @@ const {
   validateExchangeRateData,
 } = require("../assets/js/exchange-rate-policy.js");
 
-const DEFAULT_SOURCE_URL = "https://www.forwarder.kr/curr/index.php?curr=ex_rate";
+const DEFAULT_SOURCE_URL = "https://unipass.customs.go.kr/clip/com/bsopcomn/baseinfo/otsd/COM0101049Q.do";
+const DEFAULT_FETCH_URL = "https://unipass.customs.go.kr/clip/com/bsopcomn/baseinfo/retrieveCOM0101049Q.do";
+const LEGACY_FORWARDER_SOURCE_URL = "https://www.forwarder.kr/curr/index.php?curr=ex_rate";
 const DEFAULT_OUTPUT_PATH = path.join("data", "exchange-rates.json");
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_RETRY_DELAY_MS = 1_000;
 const DEFAULT_REQUEST_HEADERS = Object.freeze({
-  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  Accept: "application/json,text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
   "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
   "Cache-Control": "no-cache",
   Pragma: "no-cache",
-  Referer: "https://www.forwarder.kr/",
   "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     + "(KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
 });
@@ -131,6 +132,36 @@ function formatKoreaTimestamp(nowMs = Date.now()) {
   return `${new Date(timestamp + (9 * 60 * 60 * 1000)).toISOString().slice(0, 19)}+09:00`;
 }
 
+function formatKoreaDate(nowMs = Date.now()) {
+  return formatKoreaTimestamp(nowMs).slice(0, 10);
+}
+
+function normalizeCustomsDate(value) {
+  const match = String(value || "").match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (!match) return "";
+  const date = new Date(`${match[1]}-${match[2]}-${match[3]}T00:00:00Z`);
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== `${match[1]}-${match[2]}-${match[3]}`) {
+    return "";
+  }
+  return date.toISOString().slice(0, 10);
+}
+
+function addUtcDays(isoDate, days) {
+  const date = new Date(`${isoDate}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function buildSourceRequestUrl(fetchUrl, nowMs = Date.now()) {
+  if (fetchUrl !== DEFAULT_FETCH_URL) return fetchUrl;
+  const url = new URL(fetchUrl);
+  url.searchParams.set("aplyBgnDt", formatKoreaDate(nowMs));
+  url.searchParams.set("summary", "01");
+  url.searchParams.set("pageIndex", "1");
+  url.searchParams.set("pageUnit", "20");
+  return url.toString();
+}
+
 function describeHtmlResponse(html) {
   const source = String(html || "");
   const title = source.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1]
@@ -140,9 +171,44 @@ function describeHtmlResponse(html) {
   return `응답 ${Buffer.byteLength(source, "utf8")}바이트, 제목=${title || "없음"}`;
 }
 
+function parseCustomsExchangeRates(
+  payload,
+  sourceUrl = DEFAULT_SOURCE_URL,
+  observedAt = formatKoreaTimestamp(),
+) {
+  let parsed;
+  try {
+    parsed = typeof payload === "string" ? JSON.parse(payload) : payload;
+  } catch {
+    throw new Error("관세청 환율 응답이 올바른 JSON이 아닙니다.");
+  }
+
+  const items = Array.isArray(parsed?.items) ? parsed.items : [];
+  const usd = items.find((item) => String(item?.currCd || "").toUpperCase() === "USD");
+  const jpy = items.find((item) => String(item?.currCd || "").toUpperCase() === "JPY");
+  const startDate = normalizeCustomsDate(usd?.aplyBgnDt);
+
+  if (!startDate || normalizeCustomsDate(jpy?.aplyBgnDt) !== startDate) {
+    throw new Error("관세청 환율 적용기간을 찾지 못했습니다.");
+  }
+
+  const usdRate = parseNumber(usd?.weekFxrtIm);
+  const jpyRate = parseNumber(jpy?.weekFxrtIm);
+  if (usdRate <= 0) throw new Error("관세청 미국 USD 수입환율을 찾지 못했습니다.");
+  if (jpyRate <= 0) throw new Error("관세청 일본 JPY 수입환율을 찾지 못했습니다.");
+
+  return {
+    source: "customs.go.kr",
+    sourceUrl,
+    period: `${startDate} ~ ${addUtcDays(startDate, 6)}`,
+    updatedAt: observedAt,
+    rates: { USD: usdRate, JPY: jpyRate },
+  };
+}
+
 function parseForwarderExchangeRates(
   html,
-  sourceUrl = DEFAULT_SOURCE_URL,
+  sourceUrl = LEGACY_FORWARDER_SOURCE_URL,
   observedAt = formatKoreaTimestamp(),
 ) {
   const lines = htmlToLines(html);
@@ -177,6 +243,8 @@ function sameExchangeRates(left, right) {
     left
       && right
       && left.period === right.period
+      && left.source === right.source
+      && left.sourceUrl === right.sourceUrl
       && Number(left.rates?.USD) === Number(right.rates?.USD)
       && Number(left.rates?.JPY) === Number(right.rates?.JPY),
   );
@@ -269,6 +337,9 @@ async function readSourceHtml(
 
 async function updateExchangeRates({
   sourceUrl = process.env.EXCHANGE_RATE_SOURCE_URL || DEFAULT_SOURCE_URL,
+  fetchUrl = process.env.EXCHANGE_RATE_FETCH_URL
+    || process.env.EXCHANGE_RATE_SOURCE_URL
+    || DEFAULT_FETCH_URL,
   outputPath = process.env.EXCHANGE_RATE_OUTPUT_PATH || DEFAULT_OUTPUT_PATH,
   fetchImpl = globalThis.fetch,
   timeoutMs = DEFAULT_TIMEOUT_MS,
@@ -280,12 +351,19 @@ async function updateExchangeRates({
   sleepImpl = (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)),
   logger = console,
 } = {}) {
+  const usesLegacySource = sourceUrl === LEGACY_FORWARDER_SOURCE_URL;
+  const usesLegacyFetch = fetchUrl === LEGACY_FORWARDER_SOURCE_URL;
+  if (usesLegacySource !== usesLegacyFetch) {
+    throw new Error("레거시 환율 소스는 sourceUrl과 fetchUrl을 같은 forwarder.kr URL로 설정해야 합니다.");
+  }
+
   const existingData = await readExistingJson(outputPath);
   const attempts = Math.max(1, Math.floor(Number(maxAttempts) || DEFAULT_MAX_ATTEMPTS));
   const delayMs = Math.max(0, Number(retryDelayMs) || 0);
   const staleDaysLimit = normalizeDayLimit(maxStaleDays, DEFAULT_MAX_STALE_DAYS, "최대 경과일");
   const futureDaysLimit = normalizeDayLimit(maxFutureDays, DEFAULT_MAX_FUTURE_DAYS, "최대 미래일");
   const validationNowMs = nowImpl();
+  const requestUrl = buildSourceRequestUrl(fetchUrl, validationNowMs);
   const existingValidation = validateExchangeRateData(existingData, {
     maxStaleDays: staleDaysLimit,
     maxFutureDays: futureDaysLimit,
@@ -298,14 +376,20 @@ async function updateExchangeRates({
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     completedAttempts = attempt;
     try {
-      const html = await readSourceHtml(sourceUrl, { fetchImpl, timeoutMs });
+      const html = await readSourceHtml(requestUrl, { fetchImpl, timeoutMs });
       let candidate;
       try {
-        candidate = parseForwarderExchangeRates(
-          html,
-          sourceUrl,
-          formatKoreaTimestamp(validationNowMs),
-        );
+        candidate = usesLegacyFetch
+          ? parseForwarderExchangeRates(
+            html,
+            sourceUrl,
+            formatKoreaTimestamp(validationNowMs),
+          )
+          : parseCustomsExchangeRates(
+            html,
+            sourceUrl,
+            formatKoreaTimestamp(validationNowMs),
+          );
       } catch (error) {
         throw new Error(`${error.message} (${describeHtmlResponse(html)})`);
       }
@@ -388,17 +472,22 @@ if (require.main === module) {
 
 module.exports = {
   DEFAULT_OUTPUT_PATH,
+  DEFAULT_FETCH_URL,
   DEFAULT_SOURCE_URL,
+  LEGACY_FORWARDER_SOURCE_URL,
   DEFAULT_TIMEOUT_MS,
   DEFAULT_MAX_ATTEMPTS,
   DEFAULT_RETRY_DELAY_MS,
   DEFAULT_REQUEST_HEADERS,
   DEFAULT_MAX_STALE_DAYS,
   DEFAULT_MAX_FUTURE_DAYS,
+  buildSourceRequestUrl,
   describeHtmlResponse,
+  formatKoreaDate,
   formatKoreaTimestamp,
   htmlToLines,
   parseForwarderExchangeRates,
+  parseCustomsExchangeRates,
   parseLegacyImportRates,
   parseStructuredImportRate,
   parseStructuredPeriod,

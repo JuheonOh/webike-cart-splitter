@@ -27,7 +27,7 @@ Webike 장바구니 상품가를 관세청 과세환율 기준으로 나누고, 
 
 ## 환율 자동 갱신
 
-- 출처: `https://www.forwarder.kr/curr/index.php?curr=ex_rate`
+- 출처: 관세청 관세법령정보포털(CLIP) `https://unipass.customs.go.kr/clip/com/bsopcomn/baseinfo/otsd/COM0101049Q.do`
 - 대상: 미국 `USD`, 일본 `JPY`의 수입환율
 - 결과 파일: `data/exchange-rates.json`
 - GitHub Actions: `.github/workflows/deploy-pages.yml`
@@ -76,14 +76,14 @@ JPY 한도 = 면세 기준 USD * USD 수입환율 / JPY 수입환율
 - `assets/js/cost-comparison-core.js`: 단일/분할 주문 비용 비교와 실측 배송비 비교 로직
 - `assets/js/quote-result-core.js`: 견적 결과 버전, 상품 ID, 배송 그룹 일치 검증
 - `data/exchange-rates.json`: GitHub Pages에서 읽는 USD/JPY 수입환율 데이터
-- `scripts/update-exchange-rates.js`: forwarder.kr 고시환율 HTML 파서, 재시도와 안전한 기존 데이터 유지
+- `scripts/update-exchange-rates.js`: 관세청 주간환율 JSON 조회, 기존 HTML 소스 호환 파서, 재시도와 안전한 기존 데이터 유지
 - `package.json`: npm 검증/빌드/배포 보조 명령
 - `package-lock.json`: `npm ci`가 사용하는 결정적 의존성 잠금 파일
 - `.github/workflows/deploy-pages.yml`: 환율 JSON 자동 갱신, Vite `dist/` 빌드, Pages 배포 워크플로우
 - `tests/cart_group_calculator.test.js`: 계산 그룹, XLSX 생성, 직접 입력 정규화, CSV/TSV 붙여넣기, 결과 HTML escape 검증
 - `tests/cost_comparison.test.js`: 브라우저 주문 마법사가 사용하는 단일/분할 비용 비교 검증
 - `tests/e2e_cart_group_calculator.test.js`: Playwright 기반 직접 입력, 그룹 스크립트 복사, 수정 반영 필요 UI 검증
-- `tests/update_exchange_rates.test.js`: forwarder.kr 고시환율 HTML 파싱 검증
+- `tests/update_exchange_rates.test.js`: 관세청 주간환율 JSON과 기존 고시환율 HTML 파싱 검증
 - `tests/quote_result.test.js`: 마법사 견적 결과와 측정/추천 그룹 일치 검증
 - `tests/artifact_audit.test.js`: 배포 파일, 참조 경로, 환율 스키마·최신성 검증
 - `tests/e2e_dist.test.js`: 빌드된 공개 화면, Vue 브리지, 계산기와 마법사 흐름 검증
@@ -151,7 +151,7 @@ npm run test:e2e:source
 - 장바구니 행에서 JPY/円/￥ 가격 표기를 파싱하는지 확인
 - Webike 장바구니 HTML fixture가 상품 목록으로 파싱되는지 확인
 - 붙여넣은 상품명/품번이 결과 영역에서 HTML로 실행되지 않도록 escape되는지 확인
-- forwarder.kr 고시환율 HTML에서 USD/JPY 수입환율을 파싱하는지 확인
+- 관세청 주간환율 JSON에서 USD/JPY 수입환율과 적용기간을 파싱하는지 확인
 - 단일/분할 주문 비교에서 고정 배송비와 실측 배송비가 각각 계산되는지 확인
 - Playwright에서 직접 입력, 그룹별 스크립트 복사, 수정 반영 필요 알림이 동작하는지 확인
 - 견적 결과의 출처/버전/상품 ID/측정 그룹이 다르면 마법사 다음 단계를 차단하는지 확인

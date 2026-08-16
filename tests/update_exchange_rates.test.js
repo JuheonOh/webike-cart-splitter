@@ -4,9 +4,15 @@ const os = require("os");
 const path = require("path");
 const {
   DEFAULT_REQUEST_HEADERS,
+  DEFAULT_FETCH_URL,
+  DEFAULT_SOURCE_URL,
+  buildSourceRequestUrl,
   describeHtmlResponse,
+  formatKoreaDate,
   formatKoreaTimestamp,
+  parseCustomsExchangeRates,
   parseForwarderExchangeRates,
+  LEGACY_FORWARDER_SOURCE_URL,
   reportGitHubActionsResult,
   sameExchangeRates,
   updateExchangeRates,
@@ -17,6 +23,14 @@ const fixturePath = path.join(__dirname, "fixtures", "exchange-rates", "forwarde
 const fixtureHtml = fs.readFileSync(fixturePath, "utf8");
 const fixedNowMs = Date.parse("2026-08-16T03:30:00Z");
 const fixedObservedAt = "2026-08-16T12:30:00+09:00";
+const customsFixture = {
+  count: 2,
+  items: [
+    { aplyBgnDt: "20260816", currCd: "JPY", weekFxrtIm: "8.9032" },
+    { aplyBgnDt: "20260816", currCd: "USD", weekFxrtIm: "1416.06" },
+  ],
+};
+const customsFixtureJson = JSON.stringify(customsFixture);
 
 assert.deepStrictEqual(
   parseForwarderExchangeRates(fixtureHtml, undefined, fixedObservedAt),
@@ -33,9 +47,43 @@ assert.deepStrictEqual(
 );
 
 assert.strictEqual(formatKoreaTimestamp(fixedNowMs), fixedObservedAt);
+assert.strictEqual(formatKoreaDate(fixedNowMs), "2026-08-16");
+assert.strictEqual(
+  buildSourceRequestUrl(DEFAULT_FETCH_URL, fixedNowMs),
+  `${DEFAULT_FETCH_URL}?aplyBgnDt=2026-08-16&summary=01&pageIndex=1&pageUnit=20`,
+);
 assert.match(
   describeHtmlResponse("<html><head><title> 점검 중 </title></head></html>"),
   /^응답 \d+바이트, 제목=점검 중$/,
+);
+assert.deepStrictEqual(
+  parseCustomsExchangeRates(customsFixtureJson, undefined, fixedObservedAt),
+  {
+    source: "customs.go.kr",
+    sourceUrl: DEFAULT_SOURCE_URL,
+    period: "2026-08-16 ~ 2026-08-22",
+    updatedAt: fixedObservedAt,
+    rates: { USD: 1416.06, JPY: 8.9032 },
+  },
+);
+assert.throws(
+  () => parseCustomsExchangeRates(JSON.stringify({
+    ...customsFixture,
+    items: customsFixture.items.map((item) => (
+      item.currCd === "JPY" ? { ...item, weekFxrtIm: "", weekFxrtEx: "8.9032" } : item
+    )),
+  }), undefined, fixedObservedAt),
+  /일본 JPY 수입환율/,
+  "관세청 응답도 수입환율이 비어 있으면 수출환율로 대체하지 않아야 함",
+);
+assert.throws(
+  () => parseCustomsExchangeRates(JSON.stringify({
+    ...customsFixture,
+    items: customsFixture.items.map((item) => (
+      item.currCd === "JPY" ? { ...item, aplyBgnDt: "20260809" } : item
+    )),
+  }), undefined, fixedObservedAt),
+  /적용기간/,
 );
 
 const legacyFixtureHtml = `
@@ -62,12 +110,18 @@ assert.deepStrictEqual(legacyLayoutRates, {
 });
 
 assert.strictEqual(sameExchangeRates(legacyLayoutRates, {
+  source: "forwarder.kr",
+  sourceUrl: LEGACY_FORWARDER_SOURCE_URL,
   period: "2026-05-10 ~ 2026-05-16",
   rates: {
     USD: "1465.73",
     JPY: "9.3399",
   },
 }), true);
+assert.strictEqual(sameExchangeRates(legacyLayoutRates, {
+  ...legacyLayoutRates,
+  source: "customs.go.kr",
+}), false);
 
 assert.throws(
   () => parseForwarderExchangeRates(
@@ -151,15 +205,21 @@ async function runUpdateExchangeRatesTests() {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "webike-rates-"));
   const outputPath = path.join(tempDir, "exchange-rates.json");
   const previousSourceFile = process.env.EXCHANGE_RATE_SOURCE_FILE;
+  const previousSourceUrl = process.env.EXCHANGE_RATE_SOURCE_URL;
+  const previousFetchUrl = process.env.EXCHANGE_RATE_FETCH_URL;
   delete process.env.EXCHANGE_RATE_SOURCE_FILE;
-  const response = { ok: true, status: 200, text: async () => fixtureHtml };
+  delete process.env.EXCHANGE_RATE_SOURCE_URL;
+  delete process.env.EXCHANGE_RATE_FETCH_URL;
+  const response = { ok: true, status: 200, text: async () => customsFixtureJson };
   const quietLogger = { warn() {} };
 
   try {
+    let firstRequestUrl;
     let firstRequestOptions;
     const first = await updateExchangeRates({
       outputPath,
-      fetchImpl: async (_url, options) => {
+      fetchImpl: async (url, options) => {
+        firstRequestUrl = url;
         firstRequestOptions = options;
         return response;
       },
@@ -171,8 +231,30 @@ async function runUpdateExchangeRatesTests() {
     assert.strictEqual(first.attempts, 1);
     assert.deepStrictEqual(JSON.parse(fs.readFileSync(outputPath, "utf8")), first.data);
     assert.strictEqual(first.data.updatedAt, fixedObservedAt);
+    assert.strictEqual(
+      firstRequestUrl,
+      `${DEFAULT_FETCH_URL}?aplyBgnDt=2026-08-16&summary=01&pageIndex=1&pageUnit=20`,
+    );
     assert.deepStrictEqual(firstRequestOptions.headers, DEFAULT_REQUEST_HEADERS);
     assert.strictEqual(firstRequestOptions.redirect, "follow");
+
+    const previousSourceObservedAt = "2026-08-16T10:00:00+09:00";
+    fs.writeFileSync(outputPath, `${JSON.stringify({
+      ...first.data,
+      source: "forwarder.kr",
+      sourceUrl: LEGACY_FORWARDER_SOURCE_URL,
+      updatedAt: previousSourceObservedAt,
+    })}\n`);
+    const sourceMigrated = await updateExchangeRates({
+      outputPath,
+      fetchImpl: async () => response,
+      maxAttempts: 1,
+      nowImpl: () => fixedNowMs,
+      logger: quietLogger,
+    });
+    assert.strictEqual(sourceMigrated.status, "updated");
+    assert.strictEqual(sourceMigrated.data.source, "customs.go.kr");
+    assert.strictEqual(sourceMigrated.data.updatedAt, fixedObservedAt);
 
     const preservedUpdatedAt = "2026-08-16T11:00:00+09:00";
     fs.writeFileSync(outputPath, `${JSON.stringify({ ...first.data, updatedAt: preservedUpdatedAt })}\n`);
@@ -185,6 +267,64 @@ async function runUpdateExchangeRatesTests() {
     });
     assert.strictEqual(second.status, "unchanged");
     assert.strictEqual(second.data.updatedAt, preservedUpdatedAt, "동일 환율은 기존 updatedAt을 보존해야 함");
+
+    const clipHtmlRejected = await updateExchangeRates({
+      outputPath,
+      fetchImpl: async () => ({ ok: true, status: 200, text: async () => fixtureHtml }),
+      maxAttempts: 1,
+      nowImpl: () => fixedNowMs,
+      logger: quietLogger,
+    });
+    assert.strictEqual(clipHtmlRejected.status, "retained");
+    assert.match(clipHtmlRejected.error, /올바른 JSON/);
+
+    const legacyOutputPath = path.join(tempDir, "legacy-exchange-rates.json");
+    const explicitLegacy = await updateExchangeRates({
+      sourceUrl: LEGACY_FORWARDER_SOURCE_URL,
+      fetchUrl: LEGACY_FORWARDER_SOURCE_URL,
+      outputPath: legacyOutputPath,
+      fetchImpl: async () => ({ ok: true, status: 200, text: async () => fixtureHtml }),
+      maxAttempts: 1,
+      nowImpl: () => fixedNowMs,
+      logger: quietLogger,
+    });
+    assert.strictEqual(explicitLegacy.status, "updated");
+    assert.strictEqual(explicitLegacy.data.source, "forwarder.kr");
+    assert.strictEqual(explicitLegacy.data.sourceUrl, LEGACY_FORWARDER_SOURCE_URL);
+
+    await assert.rejects(
+      () => updateExchangeRates({
+        fetchUrl: LEGACY_FORWARDER_SOURCE_URL,
+        outputPath: legacyOutputPath,
+        fetchImpl: async () => ({ ok: true, status: 200, text: async () => fixtureHtml }),
+        maxAttempts: 1,
+        nowImpl: () => fixedNowMs,
+        logger: quietLogger,
+      }),
+      /sourceUrl과 fetchUrl/,
+    );
+    await assert.rejects(
+      () => updateExchangeRates({
+        sourceUrl: LEGACY_FORWARDER_SOURCE_URL,
+        outputPath: legacyOutputPath,
+        fetchImpl: async () => ({ ok: true, status: 200, text: async () => fixtureHtml }),
+        maxAttempts: 1,
+        nowImpl: () => fixedNowMs,
+        logger: quietLogger,
+      }),
+      /sourceUrl과 fetchUrl/,
+    );
+
+    process.env.EXCHANGE_RATE_SOURCE_URL = LEGACY_FORWARDER_SOURCE_URL;
+    const environmentLegacy = await updateExchangeRates({
+      outputPath: legacyOutputPath,
+      fetchImpl: async () => ({ ok: true, status: 200, text: async () => fixtureHtml }),
+      maxAttempts: 1,
+      nowImpl: () => fixedNowMs,
+      logger: quietLogger,
+    });
+    assert.strictEqual(environmentLegacy.data.sourceUrl, LEGACY_FORWARDER_SOURCE_URL);
+    delete process.env.EXCHANGE_RATE_SOURCE_URL;
 
     let retryFetchCount = 0;
     const retried = await updateExchangeRates({
@@ -216,7 +356,7 @@ async function runUpdateExchangeRatesTests() {
     });
     assert.strictEqual(retained.status, "retained");
     assert.strictEqual(retained.attempts, 2);
-    assert.match(retained.error, /적용기간/);
+    assert.match(retained.error, /올바른 JSON/);
     assert.strictEqual(warnings.length, 2);
     assert.deepStrictEqual(JSON.parse(fs.readFileSync(outputPath, "utf8")), retained.data);
 
@@ -232,10 +372,7 @@ async function runUpdateExchangeRatesTests() {
     assert.match(actionSummary, /기존 데이터 유지/);
     assert.match(actionSummary, /조회 시도: 2회/);
 
-    const olderHtml = fixtureHtml.replace(
-      "2026-08-16 ~ 2026-08-22",
-      "2026-08-09 ~ 2026-08-15",
-    );
+    const olderHtml = customsFixtureJson.replaceAll("20260816", "20260809");
     const rollbackPrevented = await updateExchangeRates({
       outputPath,
       fetchImpl: async () => ({ ok: true, status: 200, text: async () => olderHtml }),
@@ -294,6 +431,10 @@ async function runUpdateExchangeRatesTests() {
   } finally {
     if (previousSourceFile === undefined) delete process.env.EXCHANGE_RATE_SOURCE_FILE;
     else process.env.EXCHANGE_RATE_SOURCE_FILE = previousSourceFile;
+    if (previousSourceUrl === undefined) delete process.env.EXCHANGE_RATE_SOURCE_URL;
+    else process.env.EXCHANGE_RATE_SOURCE_URL = previousSourceUrl;
+    if (previousFetchUrl === undefined) delete process.env.EXCHANGE_RATE_FETCH_URL;
+    else process.env.EXCHANGE_RATE_FETCH_URL = previousFetchUrl;
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 }
