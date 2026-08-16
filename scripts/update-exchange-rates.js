@@ -7,8 +7,10 @@ const {
   validateExchangeRateData,
 } = require("../assets/js/exchange-rate-policy.js");
 
-const DEFAULT_SOURCE_URL = "https://unipass.customs.go.kr/clip/com/bsopcomn/baseinfo/otsd/COM0101049Q.do";
-const DEFAULT_FETCH_URL = "https://unipass.customs.go.kr/clip/com/bsopcomn/baseinfo/retrieveCOM0101049Q.do";
+const DEFAULT_SOURCE_URL = "https://www.kbexpress.kr/customs-exchange-rate.html";
+const DEFAULT_FETCH_URL = "https://script.google.com/macros/s/AKfycbz88Z9znTLG0BcjDSipTrSSH1dxOikNO8g_37_aljVthvg4QR2n5vnv0dlYHA-mbfmY/exec";
+const DIRECT_CUSTOMS_SOURCE_URL = "https://unipass.customs.go.kr/clip/com/bsopcomn/baseinfo/otsd/COM0101049Q.do";
+const DIRECT_CUSTOMS_FETCH_URL = "https://unipass.customs.go.kr/clip/com/bsopcomn/baseinfo/retrieveCOM0101049Q.do";
 const LEGACY_FORWARDER_SOURCE_URL = "https://www.forwarder.kr/curr/index.php?curr=ex_rate";
 const DEFAULT_OUTPUT_PATH = path.join("data", "exchange-rates.json");
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -153,7 +155,13 @@ function addUtcDays(isoDate, days) {
 }
 
 function buildSourceRequestUrl(fetchUrl, nowMs = Date.now()) {
-  if (fetchUrl !== DEFAULT_FETCH_URL) return fetchUrl;
+  if (fetchUrl === DEFAULT_FETCH_URL) {
+    const url = new URL(fetchUrl);
+    url.searchParams.set("action", "fxrate");
+    url.searchParams.set("date", formatKoreaDate(nowMs));
+    return url.toString();
+  }
+  if (fetchUrl !== DIRECT_CUSTOMS_FETCH_URL) return fetchUrl;
   const url = new URL(fetchUrl);
   url.searchParams.set("aplyBgnDt", formatKoreaDate(nowMs));
   url.searchParams.set("summary", "01");
@@ -173,7 +181,7 @@ function describeHtmlResponse(html) {
 
 function parseCustomsExchangeRates(
   payload,
-  sourceUrl = DEFAULT_SOURCE_URL,
+  sourceUrl = DIRECT_CUSTOMS_SOURCE_URL,
   observedAt = formatKoreaTimestamp(),
 ) {
   let parsed;
@@ -199,6 +207,48 @@ function parseCustomsExchangeRates(
 
   return {
     source: "customs.go.kr",
+    sourceUrl,
+    period: `${startDate} ~ ${addUtcDays(startDate, 6)}`,
+    updatedAt: observedAt,
+    rates: { USD: usdRate, JPY: jpyRate },
+  };
+}
+
+function parseKbridgeExchangeRates(
+  payload,
+  sourceUrl = DEFAULT_SOURCE_URL,
+  observedAt = formatKoreaTimestamp(),
+) {
+  let parsed;
+  try {
+    parsed = typeof payload === "string" ? JSON.parse(payload) : payload;
+  } catch {
+    throw new Error("KBRIDGE 환율 응답이 올바른 JSON이 아닙니다.");
+  }
+
+  if (parsed?.ok !== true) {
+    throw new Error(`KBRIDGE 환율 조회 실패: ${String(parsed?.message || "응답 상태 오류")}`);
+  }
+
+  const items = Array.isArray(parsed?.items)
+    ? parsed.items
+    : Array.isArray(parsed?.data)
+      ? parsed.data
+      : [];
+  const usd = items.find((item) => String(item?.currencyCode || "").toUpperCase() === "USD");
+  const jpy = items.find((item) => String(item?.currencyCode || "").toUpperCase() === "JPY");
+  const startDate = String(parsed?.appliedDate || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || addUtcDays(startDate, 0) !== startDate) {
+    throw new Error("KBRIDGE 환율 적용기간을 찾지 못했습니다.");
+  }
+
+  const usdRate = parseNumber(usd?.importRate);
+  const jpyRate = parseNumber(jpy?.importRate);
+  if (usdRate <= 0) throw new Error("KBRIDGE 미국 USD 수입환율을 찾지 못했습니다.");
+  if (jpyRate <= 0) throw new Error("KBRIDGE 일본 JPY 수입환율을 찾지 못했습니다.");
+
+  return {
+    source: "customs.go.kr via kbexpress.kr",
     sourceUrl,
     period: `${startDate} ~ ${addUtcDays(startDate, 6)}`,
     updatedAt: observedAt,
@@ -351,10 +401,19 @@ async function updateExchangeRates({
   sleepImpl = (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)),
   logger = console,
 } = {}) {
-  const usesLegacySource = sourceUrl === LEGACY_FORWARDER_SOURCE_URL;
   const usesLegacyFetch = fetchUrl === LEGACY_FORWARDER_SOURCE_URL;
-  if (usesLegacySource !== usesLegacyFetch) {
-    throw new Error("레거시 환율 소스는 sourceUrl과 fetchUrl을 같은 forwarder.kr URL로 설정해야 합니다.");
+  const expectedSourceUrl = usesLegacyFetch
+    ? LEGACY_FORWARDER_SOURCE_URL
+    : fetchUrl === DIRECT_CUSTOMS_FETCH_URL
+      ? DIRECT_CUSTOMS_SOURCE_URL
+      : fetchUrl === DEFAULT_FETCH_URL
+        ? DEFAULT_SOURCE_URL
+        : "";
+  if (!expectedSourceUrl) {
+    throw new Error("지원하지 않는 환율 fetchUrl입니다.");
+  }
+  if (sourceUrl !== expectedSourceUrl) {
+    throw new Error("환율 sourceUrl과 fetchUrl의 출처가 일치하지 않습니다.");
   }
 
   const existingData = await readExistingJson(outputPath);
@@ -379,17 +438,25 @@ async function updateExchangeRates({
       const html = await readSourceHtml(requestUrl, { fetchImpl, timeoutMs });
       let candidate;
       try {
-        candidate = usesLegacyFetch
-          ? parseForwarderExchangeRates(
-            html,
-            sourceUrl,
-            formatKoreaTimestamp(validationNowMs),
-          )
-          : parseCustomsExchangeRates(
+        if (usesLegacyFetch) {
+          candidate = parseForwarderExchangeRates(
             html,
             sourceUrl,
             formatKoreaTimestamp(validationNowMs),
           );
+        } else if (fetchUrl === DIRECT_CUSTOMS_FETCH_URL) {
+          candidate = parseCustomsExchangeRates(
+            html,
+            sourceUrl,
+            formatKoreaTimestamp(validationNowMs),
+          );
+        } else {
+          candidate = parseKbridgeExchangeRates(
+            html,
+            sourceUrl,
+            formatKoreaTimestamp(validationNowMs),
+          );
+        }
       } catch (error) {
         throw new Error(`${error.message} (${describeHtmlResponse(html)})`);
       }
@@ -474,6 +541,8 @@ module.exports = {
   DEFAULT_OUTPUT_PATH,
   DEFAULT_FETCH_URL,
   DEFAULT_SOURCE_URL,
+  DIRECT_CUSTOMS_SOURCE_URL,
+  DIRECT_CUSTOMS_FETCH_URL,
   LEGACY_FORWARDER_SOURCE_URL,
   DEFAULT_TIMEOUT_MS,
   DEFAULT_MAX_ATTEMPTS,
@@ -488,6 +557,7 @@ module.exports = {
   htmlToLines,
   parseForwarderExchangeRates,
   parseCustomsExchangeRates,
+  parseKbridgeExchangeRates,
   parseLegacyImportRates,
   parseStructuredImportRate,
   parseStructuredPeriod,

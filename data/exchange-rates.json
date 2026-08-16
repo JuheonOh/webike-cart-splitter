@@ -1,8 +1,8 @@
 {
-  "source": "customs.go.kr",
-  "sourceUrl": "https://unipass.customs.go.kr/clip/com/bsopcomn/baseinfo/otsd/COM0101049Q.do",
+  "source": "customs.go.kr via kbexpress.kr",
+  "sourceUrl": "https://www.kbexpress.kr/customs-exchange-rate.html",
   "period": "2026-08-16 ~ 2026-08-22",
-  "updatedAt": "2026-08-16T12:55:49+09:00",
+  "updatedAt": "2026-08-16T13:14:05+09:00",
   "rates": {
     "USD": 1416.06,
     "JPY": 8.9032

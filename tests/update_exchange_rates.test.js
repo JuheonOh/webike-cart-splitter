@@ -6,12 +6,15 @@ const {
   DEFAULT_REQUEST_HEADERS,
   DEFAULT_FETCH_URL,
   DEFAULT_SOURCE_URL,
+  DIRECT_CUSTOMS_FETCH_URL,
+  DIRECT_CUSTOMS_SOURCE_URL,
   buildSourceRequestUrl,
   describeHtmlResponse,
   formatKoreaDate,
   formatKoreaTimestamp,
   parseCustomsExchangeRates,
   parseForwarderExchangeRates,
+  parseKbridgeExchangeRates,
   LEGACY_FORWARDER_SOURCE_URL,
   reportGitHubActionsResult,
   sameExchangeRates,
@@ -31,6 +34,17 @@ const customsFixture = {
   ],
 };
 const customsFixtureJson = JSON.stringify(customsFixture);
+const kbridgeFixture = {
+  ok: true,
+  requestedDate: "2026-08-16",
+  appliedDate: "2026-08-16",
+  count: 2,
+  items: [
+    { currencyCode: "JPY", importRate: 8.9032, exportRate: 8.8 },
+    { currencyCode: "USD", importRate: 1416.06, exportRate: 1400 },
+  ],
+};
+const kbridgeFixtureJson = JSON.stringify(kbridgeFixture);
 
 assert.deepStrictEqual(
   parseForwarderExchangeRates(fixtureHtml, undefined, fixedObservedAt),
@@ -50,7 +64,11 @@ assert.strictEqual(formatKoreaTimestamp(fixedNowMs), fixedObservedAt);
 assert.strictEqual(formatKoreaDate(fixedNowMs), "2026-08-16");
 assert.strictEqual(
   buildSourceRequestUrl(DEFAULT_FETCH_URL, fixedNowMs),
-  `${DEFAULT_FETCH_URL}?aplyBgnDt=2026-08-16&summary=01&pageIndex=1&pageUnit=20`,
+  `${DEFAULT_FETCH_URL}?action=fxrate&date=2026-08-16`,
+);
+assert.strictEqual(
+  buildSourceRequestUrl(DIRECT_CUSTOMS_FETCH_URL, fixedNowMs),
+  `${DIRECT_CUSTOMS_FETCH_URL}?aplyBgnDt=2026-08-16&summary=01&pageIndex=1&pageUnit=20`,
 );
 assert.match(
   describeHtmlResponse("<html><head><title> 점검 중 </title></head></html>"),
@@ -60,11 +78,31 @@ assert.deepStrictEqual(
   parseCustomsExchangeRates(customsFixtureJson, undefined, fixedObservedAt),
   {
     source: "customs.go.kr",
+    sourceUrl: DIRECT_CUSTOMS_SOURCE_URL,
+    period: "2026-08-16 ~ 2026-08-22",
+    updatedAt: fixedObservedAt,
+    rates: { USD: 1416.06, JPY: 8.9032 },
+  },
+);
+assert.deepStrictEqual(
+  parseKbridgeExchangeRates(kbridgeFixtureJson, undefined, fixedObservedAt),
+  {
+    source: "customs.go.kr via kbexpress.kr",
     sourceUrl: DEFAULT_SOURCE_URL,
     period: "2026-08-16 ~ 2026-08-22",
     updatedAt: fixedObservedAt,
     rates: { USD: 1416.06, JPY: 8.9032 },
   },
+);
+assert.throws(
+  () => parseKbridgeExchangeRates(JSON.stringify({
+    ...kbridgeFixture,
+    items: kbridgeFixture.items.map((item) => (
+      item.currencyCode === "JPY" ? { ...item, importRate: "" } : item
+    )),
+  }), undefined, fixedObservedAt),
+  /일본 JPY 수입환율/,
+  "KBRIDGE 응답도 수입환율이 비어 있으면 수출환율로 대체하지 않아야 함",
 );
 assert.throws(
   () => parseCustomsExchangeRates(JSON.stringify({
@@ -210,7 +248,7 @@ async function runUpdateExchangeRatesTests() {
   delete process.env.EXCHANGE_RATE_SOURCE_FILE;
   delete process.env.EXCHANGE_RATE_SOURCE_URL;
   delete process.env.EXCHANGE_RATE_FETCH_URL;
-  const response = { ok: true, status: 200, text: async () => customsFixtureJson };
+  const response = { ok: true, status: 200, text: async () => kbridgeFixtureJson };
   const quietLogger = { warn() {} };
 
   try {
@@ -233,7 +271,7 @@ async function runUpdateExchangeRatesTests() {
     assert.strictEqual(first.data.updatedAt, fixedObservedAt);
     assert.strictEqual(
       firstRequestUrl,
-      `${DEFAULT_FETCH_URL}?aplyBgnDt=2026-08-16&summary=01&pageIndex=1&pageUnit=20`,
+      `${DEFAULT_FETCH_URL}?action=fxrate&date=2026-08-16`,
     );
     assert.deepStrictEqual(firstRequestOptions.headers, DEFAULT_REQUEST_HEADERS);
     assert.strictEqual(firstRequestOptions.redirect, "follow");
@@ -253,7 +291,7 @@ async function runUpdateExchangeRatesTests() {
       logger: quietLogger,
     });
     assert.strictEqual(sourceMigrated.status, "updated");
-    assert.strictEqual(sourceMigrated.data.source, "customs.go.kr");
+    assert.strictEqual(sourceMigrated.data.source, "customs.go.kr via kbexpress.kr");
     assert.strictEqual(sourceMigrated.data.updatedAt, fixedObservedAt);
 
     const preservedUpdatedAt = "2026-08-16T11:00:00+09:00";
@@ -372,7 +410,7 @@ async function runUpdateExchangeRatesTests() {
     assert.match(actionSummary, /기존 데이터 유지/);
     assert.match(actionSummary, /조회 시도: 2회/);
 
-    const olderHtml = customsFixtureJson.replaceAll("20260816", "20260809");
+    const olderHtml = kbridgeFixtureJson.replaceAll("2026-08-16", "2026-08-09");
     const rollbackPrevented = await updateExchangeRates({
       outputPath,
       fetchImpl: async () => ({ ok: true, status: 200, text: async () => olderHtml }),

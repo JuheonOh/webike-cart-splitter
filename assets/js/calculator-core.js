@@ -39,7 +39,7 @@
   } = groupingApi;
   const { getExchangeRatePeriodStatus } = exchangeRatePolicyApi;
   const SETTINGS_STORAGE_KEY = "webike-cart-splitter-settings-v1";
-  const EXCHANGE_RATE_SOURCE_URL = "https://unipass.customs.go.kr/clip/com/bsopcomn/baseinfo/otsd/COM0101049Q.do";
+  const EXCHANGE_RATE_SOURCE_URL = "https://www.kbexpress.kr/customs-exchange-rate.html";
   const DEFAULT_SETTINGS = {
     limitUsd: 150,
     usdKrw: 1465.73,
@@ -194,7 +194,7 @@
     if (!usd || !jpy) return null;
 
     return {
-      source: cleanText(source.source || "customs.go.kr"),
+      source: cleanText(source.source || "customs.go.kr via kbexpress.kr"),
       sourceUrl: cleanText(source.sourceUrl || EXCHANGE_RATE_SOURCE_URL),
       period: cleanText(source.period || ""),
       updatedAt: cleanText(source.updatedAt || ""),
