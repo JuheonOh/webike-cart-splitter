@@ -17,6 +17,11 @@
   if (!delimitedApi) {
     throw new Error("WebikeDelimitedCore 모듈을 불러오지 못했습니다.");
   }
+  const exchangeRatePolicyApi = root.WebikeExchangeRatePolicy ||
+    (typeof require !== "undefined" ? require("./exchange-rate-policy.js") : null);
+  if (!exchangeRatePolicyApi) {
+    throw new Error("WebikeExchangeRatePolicy 모듈을 불러오지 못했습니다.");
+  }
   const {
     parseDelimitedRows,
     normalizeHeader,
@@ -32,6 +37,7 @@
     recommendGroups,
     aggregateGroup,
   } = groupingApi;
+  const { getExchangeRatePeriodStatus } = exchangeRatePolicyApi;
   const SETTINGS_STORAGE_KEY = "webike-cart-splitter-settings-v1";
   const EXCHANGE_RATE_SOURCE_URL = "https://www.forwarder.kr/curr/index.php?curr=ex_rate";
   const DEFAULT_SETTINGS = {
@@ -197,50 +203,6 @@
         JPY: jpy,
       },
     };
-  }
-
-  function parseIsoDateParts(value) {
-    const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (!match) return null;
-    const year = Number(match[1]);
-    const month = Number(match[2]);
-    const day = Number(match[3]);
-    const utc = Date.UTC(year, month - 1, day);
-    const date = new Date(utc);
-    if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
-    return { year, month, day, utc };
-  }
-
-  function getExchangeRatePeriodStatus(period, nowMs = Date.now()) {
-    const match = String(period || "").trim().match(/^(\d{4}-\d{2}-\d{2})\s*~\s*(\d{4}-\d{2}-\d{2})$/);
-    const start = match ? parseIsoDateParts(match[1]) : null;
-    const end = match ? parseIsoDateParts(match[2]) : null;
-    if (!start || !end || start.utc > end.utc || !Number.isFinite(Number(nowMs))) {
-      return { state: "invalid", staleDays: null, daysUntilStart: null, startDate: "", endDate: "" };
-    }
-
-    const koreaNow = new Date(Number(nowMs) + (9 * 60 * 60 * 1000));
-    const today = Date.UTC(koreaNow.getUTCFullYear(), koreaNow.getUTCMonth(), koreaNow.getUTCDate());
-    const dayMs = 24 * 60 * 60 * 1000;
-    if (today < start.utc) {
-      return {
-        state: "upcoming",
-        staleDays: 0,
-        daysUntilStart: Math.ceil((start.utc - today) / dayMs),
-        startDate: match[1],
-        endDate: match[2],
-      };
-    }
-    if (today > end.utc) {
-      return {
-        state: "expired",
-        staleDays: Math.floor((today - end.utc) / dayMs),
-        daysUntilStart: 0,
-        startDate: match[1],
-        endDate: match[2],
-      };
-    }
-    return { state: "current", staleDays: 0, daysUntilStart: 0, startDate: match[1], endDate: match[2] };
   }
 
   function firstNumber(value) {

@@ -52,7 +52,8 @@ jobs:
       - name: Audit build artifact
         run: npm run test:artifact
         env:
-          MAX_EXCHANGE_RATE_STALE_DAYS: "14"
+          EXCHANGE_RATE_MAX_STALE_DAYS: "14"
+          EXCHANGE_RATE_MAX_FUTURE_DAYS: "1"
 
       - name: Install Playwright browsers
         run: npm run test:e2e:install
@@ -100,6 +101,10 @@ jobs:
 
       - name: Update exchange rates
         run: node scripts/update-exchange-rates.js
+        env:
+          EXCHANGE_RATE_MAX_ATTEMPTS: "3"
+          EXCHANGE_RATE_MAX_STALE_DAYS: "14"
+          EXCHANGE_RATE_MAX_FUTURE_DAYS: "1"
 
       - name: Verify unit tests
         run: npm test
@@ -110,7 +115,8 @@ jobs:
       - name: Audit build artifact
         run: npm run test:artifact
         env:
-          MAX_EXCHANGE_RATE_STALE_DAYS: "14"
+          EXCHANGE_RATE_MAX_STALE_DAYS: "14"
+          EXCHANGE_RATE_MAX_FUTURE_DAYS: "1"
 
       - name: Install Playwright browsers
         run: npm run test:e2e:install

@@ -32,6 +32,11 @@ Webike 장바구니 상품가를 관세청 과세환율 기준으로 나누고, 
 - 결과 파일: `data/exchange-rates.json`
 - GitHub Actions: `.github/workflows/deploy-pages.yml`
 - 수동 실행: GitHub Actions의 `deploy-pages` 워크플로우에서 `Run workflow`
+- 외부 페이지가 불완전하면 최대 3회 재시도한다.
+- 재시도 후에도 실패하면 기존 데이터가 유효하고 적용기간 만료 후 14일 이내일 때만 기존 데이터를 유지한다.
+- 아직 시작하지 않은 적용기간은 시작일이 1일 이내인 경우에만 허용한다.
+- 기존 데이터보다 오래된 적용기간이 응답되면 캐시 롤백으로 간주하고 기존 데이터를 유지한다.
+- 기존 데이터가 잘못됐거나 14일보다 오래됐으면 배포를 중단한다.
 
 ## GitHub Pages 배포
 
@@ -66,11 +71,12 @@ JPY 한도 = 면세 기준 USD * USD 수입환율 / JPY 수입환율
 - `assets/js/delimited-core.js`: 계산기와 마법사가 공유하는 CSV/TSV 파서
 - `assets/js/calculator-core.js`: 계산, 파싱, XLSX 생성 로직
 - `assets/js/calculator-grouping.js`: 주문 그룹 추천 알고리즘
+- `assets/js/exchange-rate-policy.js`: 환율 데이터 스키마, 적용기간, 신선도 공통 검증
 - `assets/js/cart-group-calculator.js`: 계산기 화면 동작과 이벤트 연결
 - `assets/js/cost-comparison-core.js`: 단일/분할 주문 비용 비교와 실측 배송비 비교 로직
 - `assets/js/quote-result-core.js`: 견적 결과 버전, 상품 ID, 배송 그룹 일치 검증
 - `data/exchange-rates.json`: GitHub Pages에서 읽는 USD/JPY 수입환율 데이터
-- `scripts/update-exchange-rates.js`: forwarder.kr 고시환율 HTML 파서
+- `scripts/update-exchange-rates.js`: forwarder.kr 고시환율 HTML 파서, 재시도와 안전한 기존 데이터 유지
 - `package.json`: npm 검증/빌드/배포 보조 명령
 - `package-lock.json`: `npm ci`가 사용하는 결정적 의존성 잠금 파일
 - `.github/workflows/deploy-pages.yml`: 환율 JSON 자동 갱신, Vite `dist/` 빌드, Pages 배포 워크플로우
