@@ -3,6 +3,8 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const {
+  DEFAULT_REQUEST_HEADERS,
+  describeHtmlResponse,
   formatKoreaTimestamp,
   parseForwarderExchangeRates,
   reportGitHubActionsResult,
@@ -31,6 +33,10 @@ assert.deepStrictEqual(
 );
 
 assert.strictEqual(formatKoreaTimestamp(fixedNowMs), fixedObservedAt);
+assert.match(
+  describeHtmlResponse("<html><head><title> 점검 중 </title></head></html>"),
+  /^응답 \d+바이트, 제목=점검 중$/,
+);
 
 const legacyFixtureHtml = `
   <section>
@@ -150,9 +156,13 @@ async function runUpdateExchangeRatesTests() {
   const quietLogger = { warn() {} };
 
   try {
+    let firstRequestOptions;
     const first = await updateExchangeRates({
       outputPath,
-      fetchImpl: async () => response,
+      fetchImpl: async (_url, options) => {
+        firstRequestOptions = options;
+        return response;
+      },
       maxAttempts: 1,
       nowImpl: () => fixedNowMs,
       logger: quietLogger,
@@ -161,6 +171,8 @@ async function runUpdateExchangeRatesTests() {
     assert.strictEqual(first.attempts, 1);
     assert.deepStrictEqual(JSON.parse(fs.readFileSync(outputPath, "utf8")), first.data);
     assert.strictEqual(first.data.updatedAt, fixedObservedAt);
+    assert.deepStrictEqual(firstRequestOptions.headers, DEFAULT_REQUEST_HEADERS);
+    assert.strictEqual(firstRequestOptions.redirect, "follow");
 
     const preservedUpdatedAt = "2026-08-16T11:00:00+09:00";
     fs.writeFileSync(outputPath, `${JSON.stringify({ ...first.data, updatedAt: preservedUpdatedAt })}\n`);

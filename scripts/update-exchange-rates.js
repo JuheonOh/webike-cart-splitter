@@ -12,6 +12,15 @@ const DEFAULT_OUTPUT_PATH = path.join("data", "exchange-rates.json");
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_RETRY_DELAY_MS = 1_000;
+const DEFAULT_REQUEST_HEADERS = Object.freeze({
+  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+  "Cache-Control": "no-cache",
+  Pragma: "no-cache",
+  Referer: "https://www.forwarder.kr/",
+  "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    + "(KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
+});
 
 function decodeHtmlEntities(value) {
   return String(value || "")
@@ -122,6 +131,15 @@ function formatKoreaTimestamp(nowMs = Date.now()) {
   return `${new Date(timestamp + (9 * 60 * 60 * 1000)).toISOString().slice(0, 19)}+09:00`;
 }
 
+function describeHtmlResponse(html) {
+  const source = String(html || "");
+  const title = source.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1]
+    ?.replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return `응답 ${Buffer.byteLength(source, "utf8")}바이트, 제목=${title || "없음"}`;
+}
+
 function parseForwarderExchangeRates(
   html,
   sourceUrl = DEFAULT_SOURCE_URL,
@@ -230,7 +248,11 @@ async function readSourceHtml(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetchImpl(sourceUrl, { signal: controller.signal });
+    const response = await fetchImpl(sourceUrl, {
+      headers: DEFAULT_REQUEST_HEADERS,
+      redirect: "follow",
+      signal: controller.signal,
+    });
     if (!response || !response.ok) {
       throw new Error(`환율 페이지 요청 실패: HTTP ${response?.status ?? "응답 없음"}`);
     }
@@ -277,11 +299,16 @@ async function updateExchangeRates({
     completedAttempts = attempt;
     try {
       const html = await readSourceHtml(sourceUrl, { fetchImpl, timeoutMs });
-      const candidate = parseForwarderExchangeRates(
-        html,
-        sourceUrl,
-        formatKoreaTimestamp(validationNowMs),
-      );
+      let candidate;
+      try {
+        candidate = parseForwarderExchangeRates(
+          html,
+          sourceUrl,
+          formatKoreaTimestamp(validationNowMs),
+        );
+      } catch (error) {
+        throw new Error(`${error.message} (${describeHtmlResponse(html)})`);
+      }
       const candidateValidation = validateExchangeRateData(candidate, {
         maxStaleDays: staleDaysLimit,
         maxFutureDays: futureDaysLimit,
@@ -365,8 +392,10 @@ module.exports = {
   DEFAULT_TIMEOUT_MS,
   DEFAULT_MAX_ATTEMPTS,
   DEFAULT_RETRY_DELAY_MS,
+  DEFAULT_REQUEST_HEADERS,
   DEFAULT_MAX_STALE_DAYS,
   DEFAULT_MAX_FUTURE_DAYS,
+  describeHtmlResponse,
   formatKoreaTimestamp,
   htmlToLines,
   parseForwarderExchangeRates,
