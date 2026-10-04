@@ -1,10 +1,10 @@
 {
   "source": "customs.go.kr via kbexpress.kr",
   "sourceUrl": "https://www.kbexpress.kr/customs-exchange-rate.html",
-  "period": "2026-09-27 ~ 2026-10-03",
-  "updatedAt": "2026-09-27T15:15:29+09:00",
+  "period": "2026-10-04 ~ 2026-10-10",
+  "updatedAt": "2026-10-04T15:38:35+09:00",
   "rates": {
-    "USD": 1376.03,
-    "JPY": 8.7484
+    "USD": 1357.14,
+    "JPY": 8.6131
   }
 }
