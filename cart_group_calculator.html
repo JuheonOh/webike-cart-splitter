@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>관세청 과세환율 주문 그룹 계산기</title>
+  <title>주문 그룹 계산기 | Webike Cart Splitter</title>
   <link rel="stylesheet" href="assets/css/cart-group-calculator.css">
 </head>
 <body>
 <div id="public-nav-root" data-page="calculator"></div>
 
 <main>
-  <h1>관세청 과세환율 주문 그룹 계산기</h1>
-  <p class="page-intro">장바구니를 빠르게 나누고, 각 주문이 면세 기준 안에 들어오는지 확인하세요.</p>
+  <h1>주문 그룹 계산기</h1>
+  <p class="page-intro">상품 금액과 면세 한도를 기준으로 주문을 나눕니다. 배송비는 포함하지 않습니다.</p>
 
   <div class="layout">
     <section class="panel">
@@ -29,7 +29,7 @@
 
       <div id="htmlInputPanel" class="input-panel">
         <label for="cartHtml">HTML 붙여넣기</label>
-        <p class="field-help" id="cartHtmlHelp">Webike 장바구니 표 영역을 복사해 붙여넣으면 상품과 가격을 자동으로 읽습니다.</p>
+        <p class="field-help" id="cartHtmlHelp">Webike 장바구니의 상품 표 HTML을 붙여넣으세요.</p>
         <textarea id="cartHtml" spellcheck="false" placeholder="Webike 장바구니의 table-cart HTML을 여기에 붙여넣으세요."></textarea>
       </div>
 
@@ -107,7 +107,7 @@
   </div>
 
   <section id="resultArea" aria-live="polite" aria-label="분석 결과">
-    <div class="empty">분석 결과가 여기에 표시됩니다.</div>
+    <div class="empty">상품을 입력하고 ‘분석하기’를 누르세요.</div>
   </section>
 </main>
 

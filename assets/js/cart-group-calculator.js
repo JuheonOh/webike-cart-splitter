@@ -377,14 +377,14 @@ function renderSummary(products, recommendation, settings) {
 
   return `
     <section class="summary" aria-label="요약">
-      <div class="metric"><span>추출 상품</span><b>${products.length}종</b><small>${recommendation.atoms.length}개 단위 계산</small></div>
+      <div class="metric"><span>상품 종류</span><b>${products.length}종</b></div>
       <div class="metric"><span>전체 상품가</span><b>${money(recommendation.totalJpy)} JPY</b><small>약 ${money(totalUsd, 2)} USD</small></div>
       <div class="metric"><span>${money(settings.limitUsd, Number.isInteger(settings.limitUsd) ? 0 : 2)}달러 한도</span><b>${money(Math.floor(settings.limitJpy))} JPY</b><small>${money(limitKrw)}원</small></div>
       <div class="metric"><span>주문 분할</span><b class="${statusClass}">${statusText}</b><small>${orderGroups.length || "-"}개 주문${taxableCount ? ` · 과세 예상 ${taxableCount}개` : ""}</small></div>
     </section>
     ${exactSearchFallback ? `
       <p class="calculation-warning warn" role="status">
-        정확 탐색 한도를 넘어 빠른 방식으로 계산했습니다. 더 적은 주문 조합이 있을 수 있습니다.
+        일부 조합만 계산했습니다. 주문 수가 가장 적은 조합은 아닐 수 있습니다.
       </p>
     ` : ""}
   `;
@@ -409,7 +409,7 @@ function renderProducts(products) {
   return `
     <section class="panel">
       <div class="section-head">
-        <h2>추출된 상품</h2>
+        <h2>상품 목록</h2>
         <div class="section-actions">
           <button type="button" class="compact" data-action="apply-product-edits">수정 반영</button>
           <button type="button" class="secondary compact" data-action="copy-products-to-manual">직접 입력으로 가져오기</button>
@@ -417,7 +417,7 @@ function renderProducts(products) {
       </div>
       <div id="productEditError" class="error-box" role="alert"></div>
       <p id="productEditDirtyNotice" class="dirty-notice" role="status" hidden>
-        수량이나 단가가 바뀌었습니다. 주문 그룹, 내보내기, 스크립트를 다시 만들려면 수정 반영을 누르세요.
+        수량·단가가 바뀌었습니다. ‘수정 반영’ 후 내보내기와 스크립트 복사를 할 수 있습니다.
       </p>
       <div class="table-wrap">
         <table class="result-product-table">
@@ -757,7 +757,7 @@ function renderGroups(recommendation, settings, progress = {}) {
   }).join("");
 
   const taxableNotice = recommendation.taxableGroups?.length
-    ? `<p class="warn">${escapeHtml(recommendation.message || "개당 한도 초과 품목을 과세 예상 주문으로 분리했습니다.")}</p><p class="subtle">과세 예상 주문을 먼저 표시했습니다. 통관 절차가 긴 주문부터 진행하세요.</p>`
+    ? `<p class="warn">${escapeHtml(recommendation.message || "한도를 넘는 품목을 과세 예상 주문으로 분리했습니다.")}</p><p class="subtle">과세 예상 주문을 먼저 표시했습니다.</p>`
     : "";
   return `<section class="group-grid"><h2>추천 주문 그룹</h2>${taxableNotice}${cards}</section>`;
 }
@@ -1360,7 +1360,7 @@ $("#clearButton").addEventListener("click", () => {
   groupProgress = {};
   clearError();
   resetExportData();
-  $("#resultArea").innerHTML = '<div class="empty">분석 결과가 여기에 표시됩니다.</div>';
+  $("#resultArea").innerHTML = '<div class="empty">상품을 입력하고 ‘분석하기’를 누르세요.</div>';
   removeStoredDraft();
 });
 document.querySelectorAll("input[name='inputMode']").forEach((input) => {

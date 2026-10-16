@@ -276,7 +276,7 @@ assert(xlsxEntries["xl/worksheets/sheet1.xml"].includes("실행확인"));
 assert(xlsxEntries["xl/worksheets/sheet1.xml"].includes("Webike 최종 금액 확인"));
 assert(xlsxEntries["xl/worksheets/sheet2.xml"].includes('<pane ySplit="3" topLeftCell="A4"'));
 assert(xlsxEntries["xl/worksheets/sheet2.xml"].includes('<autoFilter ref="A3:H'));
-assert(xlsxEntries["xl/worksheets/sheet2.xml"].includes("추천그룹 산출에 사용된 상품 원본/보정값입니다."));
+assert(xlsxEntries["xl/worksheets/sheet2.xml"].includes("계산에 사용한 수량과 단가입니다."));
 assert(
   xlsxEntries["xl/worksheets/sheet2.xml"].indexOf("비고") <
     xlsxEntries["xl/worksheets/sheet2.xml"].indexOf("상품URL"),
@@ -949,7 +949,7 @@ const budgetFallback = api.recommendGroups(sampleProducts, {
 assert.strictEqual(budgetFallback.groups.length, 2);
 assert.deepStrictEqual(budgetFallback.warnings, ["exact_search_budget_exceeded"]);
 assert.ok(
-  uiApi.renderSummary(sampleProducts, budgetFallback, settings).includes("빠른 방식으로 계산"),
+  uiApi.renderSummary(sampleProducts, budgetFallback, settings).includes("주문 수가 가장 적은 조합은 아닐 수 있습니다"),
   "exact search budget fallback should be visible to the user",
 );
 const cappedDp = api.twoGroupDpResult(api.makeAtoms(sampleProducts, true), settings.limitJpy, {

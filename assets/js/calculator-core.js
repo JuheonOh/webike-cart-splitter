@@ -431,7 +431,7 @@
       return {
         label: "과세 예상 주문 포함",
         style: "statusBad",
-        reason: "개당 한도 초과 품목을 별도 주문으로 분리했습니다.",
+        reason: "한도를 넘는 품목을 별도 주문으로 분리했습니다.",
         action: "해당 주문은 관세·부가세와 추가 통관 절차를 확인하세요.",
       };
     }
@@ -466,7 +466,7 @@
     if (marginUsd < 5) {
       return { label: "한도 근접", style: "statusWarn", marginStyle: "marginWarn" };
     }
-    return { label: "정상", style: "statusOk", marginStyle: "marginOk" };
+    return { label: "한도 이내", style: "statusOk", marginStyle: "marginOk" };
   }
 
   function buildGroupRows(products, recommendation, settings) {
@@ -592,7 +592,7 @@
     const rows = [
       [
         xlsxCell("추출상품", "title"),
-        xlsxCell("추천그룹 산출에 사용된 상품 원본/보정값입니다.", "note"),
+        xlsxCell("계산에 사용한 수량과 단가입니다.", "note"),
         xlsxCell(""),
         xlsxCell(""),
         xlsxCell(""),

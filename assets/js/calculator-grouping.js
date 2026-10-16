@@ -292,8 +292,8 @@
       const complete = assignedAtomCount === atoms.length &&
         taxableGroups.length + groupableResult.groups.length <= settings.maxGroups;
       const message = complete
-        ? "개당 한도 초과 품목을 과세 예상 주문으로 분리했습니다."
-        : "개당 한도 초과 품목은 과세 예상 주문으로 분리했지만, 최대 주문 수 안에 모든 품목을 배치하지 못했습니다.";
+        ? "한도를 넘는 품목을 과세 예상 주문으로 분리했습니다."
+        : "한도를 넘는 품목은 과세 예상 주문으로 분리했지만, 최대 주문 수 안에 모든 품목을 배치하지 못했습니다.";
       return {
         totalJpy: atomTotalJpy,
         groups: groupableResult.groups,
