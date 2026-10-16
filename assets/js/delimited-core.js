@@ -12,8 +12,6 @@
   }
 
   function parseDelimitedLine(line, delimiter) {
-    if (delimiter === "\t") return String(line).split("\t").map((cell) => cell.trim());
-
     const cells = [];
     let current = "";
     let quoted = false;
@@ -24,7 +22,7 @@
       if (char === '"' && quoted && next === '"') {
         current += '"';
         index += 1;
-      } else if (char === '"') {
+      } else if (char === '"' && (quoted || !current.trim())) {
         quoted = !quoted;
       } else if (char === delimiter && !quoted) {
         cells.push(current.trim());
@@ -40,8 +38,54 @@
   function parseDelimitedRows(text) {
     const value = String(text ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
     if (!value) return [];
-    const delimiter = value.includes("\t") ? "\t" : ",";
-    return value.split("\n")
+    let delimiter = ",";
+    let quoted = false;
+    let cellStart = true;
+    for (let index = 0; index < value.length; index += 1) {
+      const char = value[index];
+      if (char === '"' && (quoted || cellStart)) {
+        if (quoted && value[index + 1] === '"') {
+          index += 1;
+          continue;
+        }
+        quoted = !quoted;
+      }
+      if (!quoted && char === "\t") {
+        delimiter = "\t";
+        break;
+      }
+      if (!quoted && char === "\n") break;
+      if (!quoted && char === ",") cellStart = true;
+      else if (char.trim()) cellStart = false;
+    }
+    const records = [];
+    let record = "";
+    quoted = false;
+    cellStart = true;
+    for (let index = 0; index < value.length; index += 1) {
+      const char = value[index];
+      if (char === '"' && (quoted || cellStart)) {
+        if (quoted && value[index + 1] === '"') {
+          record += '""';
+          index += 1;
+          continue;
+        }
+        quoted = !quoted;
+        cellStart = false;
+      }
+      if (!quoted && char === "\n") {
+        records.push(record);
+        record = "";
+        cellStart = true;
+      } else {
+        record += char;
+        if (!quoted && char === delimiter) cellStart = true;
+        else if (char.trim()) cellStart = false;
+      }
+    }
+    if (quoted) throw new Error("CSV/TSV의 따옴표가 닫히지 않았습니다.");
+    records.push(record);
+    return records
       .map((line) => parseDelimitedLine(line, delimiter))
       .filter((row) => row.some((cell) => cleanText(cell)));
   }

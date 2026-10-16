@@ -68,6 +68,7 @@ assertExists("assets");
   path.join("assets", "js", "calculator-grouping.js"),
   path.join("assets", "js", "exchange-rate-policy.js"),
   path.join("assets", "js", "calculator-core.js"),
+  path.join("assets", "js", "cart-script-core.js"),
   path.join("assets", "js", "cart-group-calculator.js"),
   path.join("assets", "js", "cost-comparison-core.js"),
   path.join("assets", "js", "quote-result-core.js"),

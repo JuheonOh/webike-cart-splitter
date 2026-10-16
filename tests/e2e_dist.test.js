@@ -289,7 +289,50 @@ async function testWizardCartHtmlInput(page, baseUrl) {
   const generatedQuoteScript = await page.evaluate(() => buildQuoteScript());
   assert.ok(generatedQuoteScript.includes('"partNumber": "13225MY9003"'));
   assert.ok(generatedQuoteScript.includes('"quantity": 4'));
+  await page.click('[data-step-target="1"]');
+  await page.fill("#cartHtmlInput", cartHtml.replace('value="4"', 'value="1.5"'));
+  await page.click("#parseInputButton");
+  assert.ok((await page.textContent("#inputStatus")).includes("정수"));
+  assert.strictEqual(await page.$eval('[data-step-target="2"]', (button) => button.disabled), true);
   await page.goto(`${baseUrl}/`);
+}
+
+async function testExchangeRateDelayAndTimeout(browser, baseUrl) {
+  const rateData = fs.readFileSync(path.join(rootDir, "data", "exchange-rates.json"), "utf8");
+  for (const pathname of ["cart_group_calculator.html", "webike_quote_wizard.html"]) {
+    const sourceSelector = pathname.startsWith("cart_") ? "#exchangeRateSource" : "#wizardExchangeRateSource";
+    const delayedPage = await browser.newPage();
+    let pendingRoute;
+    let requestStarted;
+    const started = new Promise((resolve) => { requestStarted = resolve; });
+    await delayedPage.route("**/data/exchange-rates.json?*", (route) => { pendingRoute = route; requestStarted(); });
+    try {
+      await delayedPage.goto(`${baseUrl}/${pathname}`);
+      await started;
+      await delayedPage.fill("#usdKrw", "1712");
+      await delayedPage.fill("#jpyKrw", "12.5");
+      await pendingRoute.fulfill({ status: 200, contentType: "application/json", body: rateData });
+      await delayedPage.waitForFunction((selector) => document.querySelector(selector).textContent.includes("적용기간"), sourceSelector);
+      assert.strictEqual(await delayedPage.inputValue("#usdKrw"), "1712", "late automatic data must preserve manually edited USD");
+      assert.strictEqual(await delayedPage.inputValue("#jpyKrw"), "12.5", "late automatic data must preserve manually edited JPY");
+    } finally {
+      await delayedPage.close();
+    }
+
+    const timeoutPage = await browser.newPage();
+    await timeoutPage.route("**/data/exchange-rates.json?*", () => {});
+    try {
+      await timeoutPage.goto(`${baseUrl}/${pathname}`);
+      if (pathname.startsWith("webike_")) {
+        await timeoutPage.fill("#pasteInput", "TIMEOUT-001,1,Timeout test,1500,");
+        await timeoutPage.click("#parseInputButton");
+        await timeoutPage.waitForSelector('[data-step-panel="2"].active', { timeout: 8000 });
+      }
+      await timeoutPage.waitForFunction((selector) => document.querySelector(selector).textContent.includes("현재 입력값을 사용"), sourceSelector, { timeout: 8000 });
+    } finally {
+      await timeoutPage.close();
+    }
+  }
 }
 
 async function testWizardStepGating(page, baseUrl) {
@@ -646,6 +689,7 @@ async function main() {
     await testCalculatorDraftRestoreAndCorruption(page, baseUrl);
     await testTaxableGroupsFirst(page, baseUrl);
     await testWizardCartHtmlInput(page, baseUrl);
+    await testExchangeRateDelayAndTimeout(browser, baseUrl);
     await testWizardStepGating(page, baseUrl);
     await testWizardHashHistoryAndLockedStep(page, baseUrl);
     await testWizardPreviewDoesNotLinkifyUntrustedUrls(page, baseUrl);

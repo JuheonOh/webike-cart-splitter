@@ -15,6 +15,7 @@ const scenarios = [
   { limitJpy: 15000, maxGroups: 4, splitQuantity: true },
   { limitJpy: 15000, maxGroups: 4, splitQuantity: false },
   { limitJpy: 8000, maxGroups: 4, splitQuantity: true },
+  { limitJpy: 15000, maxGroups: 1, splitQuantity: true },
   {
     limitJpy: 15000,
     maxGroups: 4,
@@ -32,5 +33,8 @@ for (const settings of scenarios) {
 
 assert.deepStrictEqual(standalone.GROUPING_LIMITS, grouping.GROUPING_LIMITS);
 assert.strictEqual(typeof standalone.standaloneApiExpression, "function");
+const incomplete = grouping.recommendGroups(makeProducts(), { limitJpy: 15000, maxGroups: 1, splitQuantity: true });
+assert.strictEqual(incomplete.complete, false);
+assert.deepStrictEqual(incomplete.groups, []);
 
 console.log("grouping standalone tests passed");

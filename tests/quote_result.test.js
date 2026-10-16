@@ -273,4 +273,75 @@ assert.ok(
   quoteResultCore.validateQuoteResult(wrongSingleTotal).errors.some((error) => error.includes("상품가 합계")),
 );
 
+for (const [maxGroups, quantity] of [[1, 2], [8, 9]]) {
+  const unavailableProducts = [{ ...products[0], quantity, totalJpy: quantity * products[0].unitJpy }];
+  const unavailableSettings = { ...settings, maxGroups };
+  const unavailableRecommendations = {
+    split_quantity: grouping.recommendGroups(unavailableProducts, { ...groupSettings, maxGroups, splitQuantity: true }),
+    row_unit: grouping.recommendGroups(unavailableProducts, { ...groupSettings, maxGroups, splitQuantity: false }),
+  };
+  assert.strictEqual(unavailableRecommendations.split_quantity.complete, false);
+  const unavailableResult = {
+    ...validResult,
+    settings: unavailableSettings,
+    products: unavailableProducts,
+    measurement: {
+      singleShipment: shipment("한 번에 주문", unavailableProducts, 2000),
+      strategies: Object.fromEntries(Object.entries(unavailableRecommendations).map(([code, recommendation]) => [code, {
+        ...strategyMeasurement([], recommendation),
+        splitUnavailableReason: "최대 주문 수 안에서 분할할 수 없습니다.",
+      }])),
+    },
+  };
+  assert.strictEqual(quoteResultCore.validateQuoteResult(unavailableResult).valid, true);
+  assert.deepStrictEqual(quoteResultCore.validateRecommendationMeasurements(
+    unavailableRecommendations, unavailableResult.measurement, unavailableProducts,
+  ), { valid: true, errors: [] }, "unavailable splitting must not discard a valid single order");
+
+  const unexpectedShipment = structuredClone(unavailableResult.measurement);
+  unexpectedShipment.strategies.split_quantity.splitShipments = [shipment("불완전 그룹", unavailableProducts)];
+  assert.strictEqual(quoteResultCore.validateRecommendationMeasurements(
+    unavailableRecommendations, unexpectedShipment, unavailableProducts,
+  ).valid, false, "an unavailable strategy must never expose measured partial groups");
+
+  const missingReason = structuredClone(unavailableResult.measurement);
+  missingReason.strategies.split_quantity.splitUnavailableReason = "";
+  assert.strictEqual(quoteResultCore.validateRecommendationMeasurements(
+    unavailableRecommendations, missingReason, unavailableProducts,
+  ).valid, false);
+
+  const omittedSingleQuantity = structuredClone(unavailableResult);
+  omittedSingleQuantity.measurement.singleShipment = shipment("누락 주문", [{
+    ...unavailableProducts[0], quantity: quantity - 1, totalJpy: (quantity - 1) * products[0].unitJpy,
+  }]);
+  assert.strictEqual(quoteResultCore.validateQuoteResult(omittedSingleQuantity).valid, false);
+
+  const fakeComplete = structuredClone(unavailableRecommendations);
+  fakeComplete.split_quantity.complete = true;
+  assert.strictEqual(quoteResultCore.validateRecommendationMeasurements(
+    fakeComplete, unavailableResult.measurement, unavailableProducts,
+  ).valid, false, "available recommendations still need full inventory coverage");
+
+  const invalidInput = structuredClone(unavailableRecommendations);
+  invalidInput.split_quantity.reasonCode = "invalid_input";
+  assert.strictEqual(quoteResultCore.validateRecommendationMeasurements(
+    invalidInput, unavailableResult.measurement, unavailableProducts,
+  ).valid, false, "invalid input is not a legitimate unavailable split");
+}
+
+const partialRecommendations = {
+  split_quantity: grouping.recommendGroups(mixedTaxableProducts, { ...groupSettings, maxGroups: 1, splitQuantity: true }),
+  row_unit: grouping.recommendGroups(mixedTaxableProducts, { ...groupSettings, maxGroups: 1, splitQuantity: false }),
+};
+const partialMeasurement = {
+  strategies: Object.fromEntries(Object.entries(partialRecommendations).map(([code, recommendation]) => [code, {
+    ...strategyMeasurement([], recommendation),
+    splitUnavailableReason: "전체 상품을 배치할 수 없습니다.",
+  }])),
+};
+assert.strictEqual(partialRecommendations.split_quantity.complete, false);
+assert.deepStrictEqual(quoteResultCore.validateRecommendationMeasurements(
+  partialRecommendations, partialMeasurement, mixedTaxableProducts,
+), { valid: true, errors: [] });
+
 console.log("quote result tests passed");

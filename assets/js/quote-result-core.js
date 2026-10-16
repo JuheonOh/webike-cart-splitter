@@ -400,8 +400,15 @@
         (summary.orderGroupCount !== undefined && summary.orderGroupCount !== orderGroupCount)) {
         errors.push(`${code} 추천 요약이 현재 계산 결과와 일치하지 않습니다.`);
       }
-      if (recommendation.complete === false ||
-        recommendationInventorySignature(recommendation) !== productInventorySignature(products)) {
+      const measuredGroups = Array.isArray(measured.splitShipments) ? measured.splitShipments : [];
+      if (recommendation.complete === false) {
+        if (!["max_groups_too_small", "grouping_not_found", "atom_over_limit"].includes(recommendation.reasonCode) ||
+          measuredGroups.length || !cleanText(measured.splitUnavailableReason)) {
+          errors.push(`${code} 이용 불가 전략의 배송비 측정 정보가 올바르지 않습니다.`);
+        }
+        return;
+      }
+      if (recommendationInventorySignature(recommendation) !== productInventorySignature(products)) {
         errors.push(`${code} 추천 그룹이 전체 상품 수량을 포함하지 않습니다.`);
       }
 
@@ -417,7 +424,6 @@
       const expectedGroups = orderedRecommendationGroups.length > 1
         ? orderedRecommendationGroups.map((group) => ({ products: productsFromRecommendationGroup(group, productByIndex) }))
         : [];
-      const measuredGroups = Array.isArray(measured.splitShipments) ? measured.splitShipments : [];
       if (shipmentSetSignature(expectedGroups) !== shipmentSetSignature(measuredGroups)) {
         errors.push(`${code} 배송비 측정 그룹이 현재 추천 그룹과 일치하지 않습니다.`);
       }

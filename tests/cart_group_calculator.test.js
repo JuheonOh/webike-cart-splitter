@@ -3,6 +3,8 @@ const fs = require("fs");
 const path = require("path");
 
 const api = require("../assets/js/calculator-core.js");
+const delimited = require("../assets/js/delimited-core.js");
+const cartScriptCore = require("../assets/js/cart-script-core.js");
 const uiScriptPath = path.join(__dirname, "..", "assets", "js", "cart-group-calculator.js");
 const uiScript = fs.readFileSync(uiScriptPath, "utf8");
 const uiRuntimeScript = uiScript.replace(/\s*applyStoredSettingsToForm\(\);[\s\S]*$/, "");
@@ -18,7 +20,7 @@ return {
   removeStoredDraft,
   writeStoredDraft,
 };
-`)({ WebikeCartCore: api }, { querySelector: () => null });
+`)({ WebikeCartCore: api, WebikeCartScriptCore: cartScriptCore }, { querySelector: () => null });
 
 function makeProduct(index, code, name, quantity, unitJpy) {
   return {
@@ -320,6 +322,25 @@ assert(productUrlXlsxEntries["xl/worksheets/sheet2.xml"].includes('<c r="H4" t="
 assert(productUrlXlsxEntries["xl/worksheets/_rels/sheet2.xml.rels"].includes('Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"'));
 assert(productUrlXlsxEntries["xl/worksheets/_rels/sheet2.xml.rels"].includes('Target="https://www.japan-webike.kr/products/25427339.html"'));
 assert(productUrlXlsxEntries["xl/worksheets/_rels/sheet2.xml.rels"].includes('TargetMode="External"'));
+for (const productUrl of [
+  "file:///C:/Windows/System32/calc.exe",
+  "\\\\evil.example\\share\\invoice.xlsx",
+  "javascript:alert(1)",
+  "https://evil.example/products/25427339.html",
+  "https://www.japan-webike.kr.evil.example/products/25427339.html",
+  "https://user@www.japan-webike.kr/products/25427339.html",
+  "https://www.japan-webike.kr/products/25427339.html?next=evil",
+]) {
+  const imported = api.normalizeManualProducts([{ code: "URL", quantity: 1, unitJpy: 1000, productUrl }]).products;
+  const entries = unzipStoredEntries(api.buildXlsxBytes(imported, api.recommendGroups(imported, makeSettings()), makeSettings()));
+  assert.strictEqual(api.canonicalProductUrl(productUrl), "");
+  assert(!entries["xl/worksheets/_rels/sheet2.xml.rels"], "untrusted imported URLs must remain plain XLSX text");
+  assert(entries["xl/worksheets/sheet2.xml"].includes(api.escapeXml(productUrl)));
+}
+assert.strictEqual(api.canonicalProductUrl("/products/25427339.html"), "https://www.japan-webike.kr/products/25427339.html");
+assert.strictEqual(api.detectPasteColumns(["part_number"]).hasHeader, true);
+assert.strictEqual(api.detectPasteColumns(["product_url"]).hasHeader, true);
+assert.strictEqual(api.detectPasteColumns(["ABC"]).hasHeader, false);
 const csvZipEntries = unzipStoredEntries(api.buildGroupCsvZipBytes(csvZipRecommendation));
 assert.deepStrictEqual(Object.keys(csvZipEntries), ["webike_order_group_01.csv"]);
 assert.strictEqual(
@@ -486,7 +507,6 @@ assert(webikeCartScript.includes("/api-search-es.html"));
 assert(webikeCartScript.includes("/api_shopping_cart.html?action=add_product&ajax_action=1"));
 assert(webikeCartScript.includes('"partNumber": "13225MY9003"'));
 assert(webikeCartScript.includes('"quantity": 4'));
-assert(webikeCartScript.includes("products_id: item.productsId"));
 assert(webikeCartScript.includes('location.href = "/shopping_cart.html";'));
 assert.doesNotThrow(() => new Function(webikeCartScript));
 
@@ -590,6 +610,14 @@ assert.deepStrictEqual(invalidManualResult.errors, [
   "2행 수량은 1 이상이어야 합니다.",
   "3행 단가 JPY는 1 이상이어야 합니다.",
 ]);
+for (const quantity of [0.5, 1.5, "1.5", ".5", "1e-1"]) {
+  const invalidFraction = api.normalizeManualProducts([{ code: "FRACTION", quantity, unitJpy: 15000 }]);
+  assert.deepStrictEqual(invalidFraction.products, [], "fractional quantity must not become a different order quantity");
+  assert.strictEqual(invalidFraction.errors.length, 1);
+  assert.throws(() => api.cartProductFromRow(makeFakeRow({
+    dataset: { sku: "FRACTION", quantity: String(quantity), unitPrice: "15000" },
+  }), 0), /정수/);
+}
 
 const copiedManualRows = api.manualRowsFromProducts(sampleProducts.slice(0, 2));
 assert.deepStrictEqual(copiedManualRows, [
@@ -627,6 +655,22 @@ assert.deepStrictEqual(pastedCsv.errors, []);
 assert.deepStrictEqual(pastedCsv.rows, [
   { code: "C-003", name: "CSV, Item", quantity: "3", unitJpy: "2,000" },
 ]);
+const multilineCsv = 'part_number,quantity,name,unit_jpy\r\nA,2,"Line1\r\nLine2\t""quoted""",1500';
+assert.deepStrictEqual(delimited.parseDelimitedRows(multilineCsv), [
+  ["part_number", "quantity", "name", "unit_jpy"],
+  ["A", "2", 'Line1\nLine2\t"quoted"', "1500"],
+]);
+assert.deepStrictEqual(api.manualRowsFromPastedText(multilineCsv).errors, []);
+assert.deepStrictEqual(delimited.parseDelimitedRows('A\t2\t"Line1\nLine2\tquoted"\t1500'), [
+  ["A", "2", "Line1\nLine2\tquoted", "1500"],
+]);
+assert.deepStrictEqual(delimited.parseDelimitedRows('A\t2\t6" Bolt\t1500'), [["A", "2", '6" Bolt', "1500"]]);
+assert.deepStrictEqual(delimited.parseDelimitedRows('PART\t1\tBolt, "large\t1000\nPART2\t1\tAnother "literal\t2000'), [
+  ["PART", "1", 'Bolt, "large', "1000"],
+  ["PART2", "1", 'Another "literal', "2000"],
+]);
+assert.throws(() => delimited.parseDelimitedRows('A,2,"Unclosed,1500'), /따옴표/);
+assert(api.manualRowsFromPastedText('A,2,"Unclosed,1500').errors[0].includes("따옴표"));
 
 ["단가", "금액", "가격", "판매가"].forEach((priceHeader) => {
   const pastedKoreanPriceAlias = api.manualRowsFromPastedText([

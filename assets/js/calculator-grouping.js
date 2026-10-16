@@ -314,7 +314,7 @@
       taxableGroups: [],
       oversize: [],
       atoms,
-      complete: true,
+      complete: grouped.groups.length > 0,
       reasonCode: grouped.reasonCode,
       message: grouped.message,
       warnings: grouped.warnings,

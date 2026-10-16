@@ -286,6 +286,19 @@
       cleanText(element?.href);
   }
 
+  function canonicalProductUrl(value) {
+    const text = cleanText(value);
+    if (!text) return "";
+    try {
+      const url = new URL(text, "https://www.japan-webike.kr/");
+      if (url.origin !== "https://www.japan-webike.kr" || url.username || url.password || url.search || url.hash ||
+        !/^\/products\/\d+\.html$/i.test(url.pathname)) return "";
+      return `https://www.japan-webike.kr${url.pathname}`;
+    } catch {
+      return "";
+    }
+  }
+
   function productCodeFromId(id) {
     const value = cleanText(id);
     if (!value) return "";
@@ -324,11 +337,16 @@
     const quantityText = textFrom(row, QUANTITY_SELECTORS) ||
       datasetValue(row, ["quantity", "qty"]) ||
       attributeValue(row, ["data-quantity", "data-qty"]);
-    const quantity = firstNumber(quantityText);
-    if (quantity > 0) return Math.max(1, Math.round(quantity));
-
-    const rowMatch = cleanText(row?.textContent).match(/(?:수량|数量|qty|quantity)\s*[:：]?\s*([\d,]+)/i);
-    return rowMatch ? Math.max(1, Math.round(toNumber(rowMatch[1]))) : 1;
+    const rowMatch = cleanText(row?.textContent).match(/(?:수량|数量|qty|quantity)\s*[:：]?\s*([^\s]+)/i);
+    const value = quantityText || rowMatch?.[1];
+    if (!value) return 1;
+    const quantity = toNumber(String(value)
+      .replace(/^(?:수량|数量|qty|quantity)\s*[:：]?\s*/i, "")
+      .replace(/\s*(?:개|個|pcs?)$/i, ""));
+    if (!Number.isInteger(quantity) || quantity < 1) {
+      throw new Error("상품 수량은 1 이상의 정수여야 합니다.");
+    }
+    return quantity;
   }
 
   function hasProductSignal(row) {
@@ -604,7 +622,7 @@
         xlsxCell(item.totalJpy, "jpyInteger"),
         xlsxCell(Math.round(item.totalJpy * settings.jpyKrw), "krwInteger"),
         xlsxCell("", "checkCell"),
-        xlsxCell(item.productUrl || "", item.productUrl ? "hyperlink" : "boxText", "", item.productUrl || ""),
+        xlsxCell(item.productUrl || "", canonicalProductUrl(item.productUrl) ? "hyperlink" : "boxText", "", canonicalProductUrl(item.productUrl)),
       ]);
     });
     return rows;
@@ -1206,7 +1224,7 @@
       const productUrl = cleanText(row.productUrl);
       const code = cleanText(row.code) || productUrl;
       const name = cleanText(row.name);
-      const quantity = Math.round(toNumber(row.quantity));
+      const quantity = toNumber(row.quantity);
       const unitJpy = parseJpy(row.unitJpy);
       const hasAnyValue = code || productUrl || name || String(row.quantity || "").trim() || String(row.unitJpy || "").trim();
 
@@ -1214,11 +1232,12 @@
 
       if (!code) errors.push(`${rowIndex + 1}행 상품번호를 입력해 주세요.`);
       if (quantity < 1) errors.push(`${rowIndex + 1}행 수량은 1 이상이어야 합니다.`);
+      else if (!Number.isInteger(quantity)) errors.push(`${rowIndex + 1}행 수량은 정수여야 합니다.`);
       if (quantity > GROUPING_LIMITS.maxQuantityPerProduct) {
         errors.push(`${rowIndex + 1}행 수량은 ${GROUPING_LIMITS.maxQuantityPerProduct} 이하여야 합니다.`);
       }
       if (unitJpy <= 0) errors.push(`${rowIndex + 1}행 단가 JPY는 1 이상이어야 합니다.`);
-      if (!code || quantity < 1 || quantity > GROUPING_LIMITS.maxQuantityPerProduct || unitJpy <= 0) return;
+      if (!code || !Number.isInteger(quantity) || quantity < 1 || quantity > GROUPING_LIMITS.maxQuantityPerProduct || unitJpy <= 0) return;
 
       const product = {
         index: products.length,
@@ -1259,14 +1278,19 @@
       unitJpy: findColumn(headers, ["단가jpy", "단가", "금액", "가격", "판매가", "price", "unitjpy", "unitprice", "jpy"]),
     };
     const matchedCount = Object.values(columns).filter((index) => index >= 0).length;
-    return matchedCount >= 2 ? { columns, hasHeader: true } : {
+    return matchedCount >= 2 || columns.code >= 0 || columns.productUrl >= 0 ? { columns, hasHeader: true } : {
       columns: { code: 0, productUrl: -1, name: 1, quantity: 2, unitJpy: 3 },
       hasHeader: false,
     };
   }
 
   function manualRowsFromPastedText(text) {
-    const parsedRows = parseDelimitedRows(text);
+    let parsedRows;
+    try {
+      parsedRows = parseDelimitedRows(text);
+    } catch (error) {
+      return { rows: [], errors: [error.message] };
+    }
     if (!parsedRows.length) return { rows: [], errors: ["붙여넣을 상품 목록을 입력해 주세요."] };
 
     const { columns, hasHeader } = detectPasteColumns(parsedRows[0]);
@@ -1313,6 +1337,7 @@
     productCodeFromId,
     priceFromRow,
     quantityFromRow,
+    canonicalProductUrl,
     hasProductSignal,
     escapeXml,
     escapeHtml,
@@ -1329,6 +1354,7 @@
     cartProductFromRow,
     normalizeManualProducts,
     manualRowsFromProducts,
+    detectPasteColumns,
     manualRowsFromPastedText,
     validateGroupingRequest,
     makeAtoms,

@@ -9,7 +9,6 @@ const XLSX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadshee
 const ZIP_MIME_TYPE = "application/zip";
 const EXCHANGE_RATE_DATA_URL = "data/exchange-rates.json";
 const WEBIKE_CART_SCRIPT_HOST = "www.japan-webike.kr";
-const WEBIKE_PRODUCT_URL_PATTERN = /^\/products\/\d+\.html$/;
 const DRAFT_STORAGE_KEY = "webike-cart-splitter-draft-v1";
 const DRAFT_VERSION = 1;
 const DRAFT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -28,6 +27,7 @@ const {
   readStoredSettings,
   writeStoredSettings,
   hasStoredSettings,
+  canonicalProductUrl,
   buildXlsxBytes,
   buildGroupCsvZipBytes,
   makeXlsxFileName,
@@ -63,7 +63,7 @@ function setExchangeRateSourceMessage(message, tone = "") {
 function renderExchangeRateSource(data, applied) {
   const prefix = applied ? "자동환율 적용" : "자동환율 확인";
   const period = data.period ? `적용기간 ${data.period}, ` : "";
-  const suffix = applied ? "" : " 저장된 설정이 있어 입력값은 유지했습니다.";
+  const suffix = applied ? "" : " 입력 중이거나 저장된 환율을 유지했습니다.";
   const freshness = getExchangeRatePeriodStatus(data.period);
   const freshnessMessage = freshness.state === "expired"
     ? ` 적용기간이 ${freshness.staleDays}일 지났습니다. 최신 고시환율을 직접 확인해 주세요.`
@@ -90,19 +90,26 @@ async function loadExchangeRates({ applyToForm = false } = {}) {
     return;
   }
 
+  const initialUsd = $("#usdKrw").value;
+  const initialJpy = $("#jpyKrw").value;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
   try {
-    const response = await fetch(`${EXCHANGE_RATE_DATA_URL}?v=${Date.now()}`, { cache: "no-store" });
+    const response = await fetch(`${EXCHANGE_RATE_DATA_URL}?v=${Date.now()}`, { cache: "no-store", signal: controller.signal });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
     const data = normalizeExchangeRateData(await response.json());
     if (!data) throw new Error("invalid exchange rate data");
 
     latestExchangeRateData = data;
-    if (applyToForm) applyExchangeRatesToForm(data);
-    renderExchangeRateSource(data, applyToForm);
+    const shouldApply = applyToForm && $("#usdKrw").value === initialUsd && $("#jpyKrw").value === initialJpy;
+    if (shouldApply) applyExchangeRatesToForm(data);
+    renderExchangeRateSource(data, shouldApply);
   } catch {
     latestExchangeRateData = null;
     setExchangeRateSourceMessage("자동환율을 불러오지 못했습니다. 현재 입력값을 사용합니다.", "warn");
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -381,7 +388,7 @@ function renderProducts(products) {
   const rows = products.map((item) => `
     <tr data-product-index="${item.index}">
       <td>${escapeHtml(item.code)}</td>
-      <td>${isAllowedWebikeProductUrl(item.productUrl) ? `<a href="${escapeHtml(item.productUrl)}" target="_blank" rel="noopener noreferrer">열기</a>` : (item.productUrl ? escapeHtml(item.productUrl) : "-")}</td>
+      <td>${isAllowedWebikeProductUrl(item.productUrl) ? `<a href="${escapeHtml(canonicalProductUrl(item.productUrl))}" target="_blank" rel="noopener noreferrer">열기</a>` : (item.productUrl ? escapeHtml(item.productUrl) : "-")}</td>
       <td>${escapeHtml(item.name)}</td>
       <td class="num">
         <input class="result-product-quantity result-product-edit" type="text" inputmode="numeric" aria-label="${escapeHtml(item.code)} 수량" value="${escapeHtml(item.quantity)}">
@@ -425,14 +432,7 @@ function renderProducts(products) {
 }
 
 function isAllowedWebikeProductUrl(value) {
-  try {
-    const url = new URL(String(value || "").trim());
-    return url.origin === `https://${WEBIKE_CART_SCRIPT_HOST}`
-      && !url.username && !url.password && !url.search && !url.hash
-      && WEBIKE_PRODUCT_URL_PATTERN.test(url.pathname);
-  } catch {
-    return false;
-  }
+  return Boolean(canonicalProductUrl(value));
 }
 
 function cartScriptItemFromProduct(item) {
@@ -443,7 +443,7 @@ function cartScriptItemFromProduct(item) {
   return {
     partNumber: codeIsProductUrl ? "" : code,
     productUrl,
-    quantity: Math.max(1, Math.round(toNumber(item.quantity))),
+    quantity: toNumber(item.quantity),
     name: String(item.name || code || productUrl || "").trim(),
     unitJpy: Math.max(0, Math.round(toNumber(item.unitJpy))),
   };
@@ -457,9 +457,11 @@ function jsonForGeneratedScript(value) {
 }
 
 function buildWebikeCartScript(products) {
-  const items = products
-    .map(cartScriptItemFromProduct)
-    .filter((item) => (item.partNumber || item.productUrl) && item.quantity > 0);
+  const mapped = products.map(cartScriptItemFromProduct);
+  if (!mapped.length || mapped.some((item) => !Number.isSafeInteger(item.quantity) || item.quantity < 1)) {
+    throw new Error("장바구니 상품 수량은 1 이상의 정수여야 합니다.");
+  }
+  const items = mapped.filter((item) => item.partNumber || item.productUrl);
 
   return `// Webike Cart Splitter generated add-cart script.
 // Open https://${WEBIKE_CART_SCRIPT_HOST}/, then paste this whole script into DevTools Console.
@@ -467,9 +469,11 @@ function buildWebikeCartScript(products) {
   const items = ${jsonForGeneratedScript(items)};
   const requiredHost = "${WEBIKE_CART_SCRIPT_HOST}";
   const searchEndpoint = "/api-search-es.html";
-  const cartEndpoint = "/api_shopping_cart.html?action=add_product&ajax_action=1";
+  const cartClient = ${window.WebikeCartScriptCore.standaloneApiExpression()};
   const failures = [];
   let successCount = 0;
+  let uncertainResult = false;
+  delete window.__webikeCartSplitterRetry;
 
   if (location.origin !== \`https://\${requiredHost}\`) {
     console.error(\`Webike 페이지에서 실행해 주세요: https://\${requiredHost}/\`);
@@ -528,8 +532,8 @@ function buildWebikeCartScript(products) {
   }
 
   function jsVariable(html, name) {
-    const pattern = new RegExp(\`(?:var|let|const)\\\\s+\${name}\\\\s*=\\\\s*["']([^"']+)["']\`);
-    return html.match(pattern)?.[1] || "";
+    const pattern = new RegExp("(?:var|let|const)\\\\s+" + name + "\\\\s*=\\\\s*([^;\\\\n]+)", "i");
+    return String((html.match(pattern) || [])[1] || "").trim().replace(/^[\u0027\u0022\u0060]|[\u0027\u0022\u0060]$/g, "");
   }
 
   function firstFieldValue(doc, selectors) {
@@ -607,47 +611,14 @@ function buildWebikeCartScript(products) {
     if (item.partNumber && detailPartNumber && normalizePartNumber(detailPartNumber) !== normalizePartNumber(item.partNumber)) {
       throw new Error(\`요청 \${item.partNumber}, 상세 \${detailPartNumber} 부품번호가 다릅니다.\`);
     }
-    if (jsVariable(html, "canNotAddCart") === "true") {
+    if (["1", "true", "yes", "y"].includes(jsVariable(html, "canNotAddCart").toLowerCase())) {
       throw new Error(\`\${item.partNumber} 상품은 장바구니 담기 불가 상태입니다.\`);
     }
-    if (jsVariable(html, "restrictedCountry") === "true") {
+    if (["1", "true", "yes", "y"].includes(jsVariable(html, "restrictedCountry").toLowerCase())) {
       throw new Error(\`\${item.partNumber} 상품은 배송 제한 상태입니다.\`);
     }
 
     return { ...item, productsId, productUrl };
-  }
-
-  function responseLooksFailed(parsed, text) {
-    if (parsed && typeof parsed === "object") {
-      const result = String(parsed.result || parsed.status || parsed.resultcode || "").toLowerCase();
-      const message = String(parsed.message || parsed.errmsg || parsed.errsmsg || "").toLowerCase();
-      return ["error", "failed", "fail", "ng"].includes(result) || message.includes("error") || message.includes("fail");
-    }
-    return /(?:error|failed|fail|오류|실패)/i.test(String(text || ""));
-  }
-
-  async function addToCart(item) {
-    const { response, text } = await fetchTextWithTimeout(cartEndpoint, {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        "X-Requested-With": "XMLHttpRequest",
-      },
-      body: new URLSearchParams({
-        products_id: item.productsId,
-        cart_quantity: String(item.quantity),
-      }),
-    });
-    let parsed = null;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      parsed = null;
-    }
-    if (!response.ok || responseLooksFailed(parsed, text)) {
-      throw new Error(\`\${response.status} \${text.slice(0, 240)}\`);
-    }
   }
 
   async function runItems(runItems) {
@@ -657,17 +628,23 @@ function buildWebikeCartScript(products) {
         console.log(\`\${prefix} 검색 및 상품 확인\`);
         const resolved = await resolveProduct(item);
         console.log(\`\${prefix} 장바구니 담기 요청: products_id \${resolved.productsId}, 수량 \${resolved.quantity}\`);
-        await addToCart(resolved);
+        await cartClient.add(resolved);
         successCount += 1;
         console.log(\`\${prefix} 완료\`);
       } catch (error) {
         failures.push({ item, error: error.message });
         console.error(\`\${prefix} 실패\`, error);
+        if (error.uncertain) {
+          uncertainResult = true;
+          delete window.__webikeCartSplitterRetry;
+          return;
+        }
       }
     }
   }
 
   await runItems(items);
+  if (uncertainResult) return;
 
   if (failures.length) {
     window.__webikeCartSplitterRetry = async () => {
@@ -782,7 +759,7 @@ function getSettings() {
   const limitUsd = toNumber($("#limitUsd").value);
   const usdKrw = toNumber($("#usdKrw").value);
   const jpyKrw = toNumber($("#jpyKrw").value);
-  const maxGroups = Math.round(toNumber($("#maxGroups").value));
+  const maxGroups = toNumber($("#maxGroups").value);
   const exchangeRateDataMatches = latestExchangeRateData &&
     latestExchangeRateData.rates.USD === usdKrw &&
     latestExchangeRateData.rates.JPY === jpyKrw;
@@ -1275,7 +1252,12 @@ function analyze() {
       showError("분석할 HTML을 붙여넣어 주세요.");
       return;
     }
-    products = parseProducts(html);
+    try {
+      products = parseProducts(html);
+    } catch (error) {
+      showError(error.message);
+      return;
+    }
     if (!products.length) {
       showError("상품 행을 찾지 못했습니다. table-cart 영역의 HTML을 붙여넣었는지 확인해 주세요.");
       return;

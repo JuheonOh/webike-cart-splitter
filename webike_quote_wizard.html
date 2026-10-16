@@ -890,6 +890,7 @@
 <script src="assets/js/calculator-core.js"></script>
 <script src="assets/js/cost-comparison-core.js"></script>
 <script src="assets/js/quote-result-core.js"></script>
+<script src="assets/js/cart-script-core.js"></script>
 <script>
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -899,8 +900,6 @@ const quoteResultCore = window.WebikeQuoteResultCore;
 const GROUPING_LIMITS = cartCore.GROUPING_LIMITS;
 const {
   parseDelimitedRows,
-  normalizeHeader,
-  findColumn,
 } = window.WebikeDelimitedCore;
 const formatter = new Intl.NumberFormat("ko-KR");
 const FIXED_IMPORT_DUTY_RATE = 0.08;
@@ -1006,7 +1005,7 @@ function getSettings() {
     usdKrw,
     jpyKrw,
     limitJpy: limitUsd && usdKrw && jpyKrw ? (limitUsd * usdKrw) / jpyKrw : 0,
-    maxGroups: Math.round(toNumber($("#maxGroups").value)),
+    maxGroups: toNumber($("#maxGroups").value),
     shippingService: $("#shippingService").value.trim().toUpperCase(),
     importDutyRate: FIXED_IMPORT_DUTY_RATE,
     vatRate: FIXED_VAT_RATE,
@@ -1040,8 +1039,10 @@ function setWizardExchangeRateMessage(message, warn = false) {
 async function loadWizardExchangeRates() {
   const initialUsd = $("#usdKrw").value;
   const initialJpy = $("#jpyKrw").value;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
   try {
-    const response = await fetch(`data/exchange-rates.json?v=${Date.now()}`, { cache: "no-store" });
+    const response = await fetch(`data/exchange-rates.json?v=${Date.now()}`, { cache: "no-store", signal: controller.signal });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = cartCore.normalizeExchangeRateData(await response.json());
     if (!data) throw new Error("invalid exchange rate data");
@@ -1063,27 +1064,28 @@ async function loadWizardExchangeRates() {
     );
   } catch {
     setWizardExchangeRateMessage("자동환율을 불러오지 못했습니다. 현재 입력값을 사용합니다.", true);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
 const wizardExchangeRateLoadPromise = loadWizardExchangeRates();
 
 function parseInputRows(text) {
-  const rawRows = parseDelimitedRows(text);
+  let rawRows;
+  try {
+    rawRows = parseDelimitedRows(text);
+  } catch (error) {
+    return { rows: [], errors: [error.message] };
+  }
   const errors = [];
   if (!rawRows.length) return { rows: [], errors: ["상품 목록을 입력해 주세요."] };
 
-  const headers = rawRows[0].map(normalizeHeader);
-  const hasHeader = headers.some((header) => (
-    ["partnumber", "partno", "품번", "상품번호", "producturl", "url", "링크"].includes(header)
-  ));
-  const columns = {
-    partNumber: findColumn(headers, ["partnumber", "partno", "품번", "상품번호", "sku", "code"], hasHeader ? -1 : 0),
-    productUrl: findColumn(headers, ["producturl", "url", "상품url", "상품주소", "링크", "productlink"], hasHeader ? -1 : 4),
-    quantity: findColumn(headers, ["quantity", "qty", "수량", "count"], hasHeader ? -1 : 1),
-    name: findColumn(headers, ["name", "productname", "상품명", "제품명"], hasHeader ? -1 : 2),
-    unitJpy: findColumn(headers, ["unitjpy", "unitprice", "price", "단가jpy", "단가", "금액", "가격", "판매가", "jpy"], hasHeader ? -1 : 3),
-  };
+  const detected = cartCore.detectPasteColumns(rawRows[0]);
+  const hasHeader = detected.hasHeader;
+  const columns = hasHeader
+    ? { ...detected.columns, partNumber: detected.columns.code }
+    : { partNumber: 0, quantity: 1, name: 2, unitJpy: 3, productUrl: 4 };
   const dataRows = rawRows.slice(hasHeader ? 1 : 0);
   if (dataRows.length > GROUPING_LIMITS.maxProducts) {
     return { rows: [], errors: [`상품은 최대 ${GROUPING_LIMITS.maxProducts}개까지 입력할 수 있습니다.`] };
@@ -1094,7 +1096,7 @@ function parseInputRows(text) {
     const productUrl = columns.productUrl >= 0 ? String(row[columns.productUrl] || "").trim() : "";
     const quantityText = columns.quantity >= 0 ? String(row[columns.quantity] ?? "").replace(/,/g, "").trim() : "";
     const parsedQuantity = quantityText ? Number(quantityText) : 1;
-    const quantity = Number.isFinite(parsedQuantity) ? Math.round(parsedQuantity) : 0;
+    const quantity = Number.isFinite(parsedQuantity) ? parsedQuantity : 0;
     const name = columns.name >= 0 ? String(row[columns.name] || "").trim() : "";
     const unitJpy = Math.round(toNumber(columns.unitJpy >= 0 ? row[columns.unitJpy] : 0));
 
@@ -1102,7 +1104,7 @@ function parseInputRows(text) {
 
     const rowErrors = [];
     if (!partNumber && !productUrl) rowErrors.push(`${rowIndex + 1}번째 데이터 행의 상품번호 또는 상품 URL이 비어 있습니다.`);
-    if (quantity < 1) rowErrors.push(`${partNumber || productUrl || rowIndex + 1} 수량은 1 이상이어야 합니다.`);
+    if (!Number.isInteger(quantity) || quantity < 1) rowErrors.push(`${partNumber || productUrl || rowIndex + 1} 수량은 1 이상의 정수여야 합니다.`);
     if (quantity > GROUPING_LIMITS.maxQuantityPerProduct) {
       rowErrors.push(`${partNumber || productUrl || rowIndex + 1} 수량은 ${GROUPING_LIMITS.maxQuantityPerProduct} 이하여야 합니다.`);
     }
@@ -1132,7 +1134,12 @@ function parseCartHtmlInput(html) {
   const text = String(html || "").trim();
   if (!text) return { rows: [], errors: ["분석할 장바구니 HTML을 붙여넣어 주세요."] };
 
-  const products = cartCore.parseProducts(text);
+  let products;
+  try {
+    products = cartCore.parseProducts(text);
+  } catch (error) {
+    return { rows: [], errors: [error.message] };
+  }
   if (!products.length) {
     return { rows: [], errors: ["상품 행을 찾지 못했습니다. table-cart 영역의 HTML을 붙여넣었는지 확인해 주세요."] };
   }
@@ -1436,7 +1443,7 @@ function buildQuoteScript() {
   function jsVariable(html, name) {
     const pattern = new RegExp("(?:var|let|const)\\\\s+" + name + "\\\\s*=\\\\s*([^;\\\\n]+)", "i");
     const raw = cleanText((html.match(pattern) || [])[1] || "");
-    return raw.replace(/^['"]|['"]$/g, "");
+    return raw.replace(/^[\u0027\u0022\u0060]|[\u0027\u0022\u0060]$/g, "");
   }
 
   function firstValue(doc, selectors) {
@@ -1583,10 +1590,13 @@ function buildQuoteScript() {
     if (status !== "OK") throw new Error("배송비 API 상태가 OK가 아닙니다: " + (response.status || "unknown"));
     if (!results.length) throw new Error("배송비 API 결과가 비어 있습니다.");
     return results.map(function (item) {
+      const costText = String(item.cost == null ? "" : item.cost).replace(/,/g, "").trim();
+      const cost = Number(costText);
+      if (!["number", "string"].includes(typeof item.cost) || !costText || !Number.isFinite(cost) || cost < 0) throw new Error("배송비 API의 배송비 금액이 올바르지 않습니다.");
       return {
         serviceCode: cleanText(item.service_code || item.serviceCode),
         serviceId: cleanText(item.service_id_dobar || item.serviceId),
-        costJpy: Math.round(toNumber(item.cost)),
+        costJpy: Math.round(cost),
         durationMin: Math.round(toNumber(item.duration_min || item.durationMin)),
         durationMax: Math.round(toNumber(item.duration_max || item.durationMax)),
         type: cleanText(item.type)
@@ -1795,63 +1805,19 @@ function buildAddCartScript(items) {
 // Open https://www.japan-webike.kr/, then paste this whole script into DevTools Console.
 (async () => {
   const items = ${safeJsonForScript(safeItems)};
-  const endpoint = "/api_shopping_cart.html?action=add_product&ajax_action=1";
+  const cartClient = ${window.WebikeCartScriptCore.standaloneApiExpression()};
   const failures = [];
   const successes = [];
-  const fetchTimeoutMs = 15000;
+  delete window.__webikeCartSplitterRetry;
 
   if (location.origin !== "https://www.japan-webike.kr") {
     console.error("Webike Korea 페이지에서 실행해 주세요: https://www.japan-webike.kr/");
     return;
   }
 
-  function responseLooksFailed(parsed, text) {
-    if (parsed && typeof parsed === "object") {
-      const result = String(parsed.result || parsed.status || parsed.resultcode || "").toLowerCase();
-      const message = String(parsed.message || parsed.errmsg || parsed.errsmsg || "").toLowerCase();
-      return ["error", "failed", "fail", "ng"].includes(result) || message.includes("error") || message.includes("fail");
-    }
-    return /(?:error|failed|fail|오류|실패)/i.test(String(text || ""));
-  }
-
-  async function fetchCartResponse(item) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), fetchTimeoutMs);
-    try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-          "X-Requested-With": "XMLHttpRequest",
-        },
-        body: new URLSearchParams({
-          products_id: item.productsId,
-          cart_quantity: String(item.quantity),
-        }),
-        signal: controller.signal,
-      });
-      return { response, text: await response.text() };
-    } catch (error) {
-      if (error && error.name === "AbortError") throw new Error("Webike 장바구니 응답 시간이 초과되었습니다(15초).");
-      throw error;
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
   async function addItem(item, index) {
     console.log(\`[\${index + 1}/\${items.length}] \${item.partNumber} 장바구니 담기 요청\`);
-    const { response, text } = await fetchCartResponse(item);
-    let parsed = null;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      parsed = null;
-    }
-    if (!response.ok || responseLooksFailed(parsed, text)) {
-      throw new Error(\`\${response.status} \${text.slice(0, 240)}\`);
-    }
+    await cartClient.add(item);
     console.log(\`[\${index + 1}/\${items.length}] \${item.partNumber} 완료\`);
     successes.push(item);
   }
@@ -1862,6 +1828,7 @@ function buildAddCartScript(items) {
     } catch (error) {
       failures.push({ item, error: error.message });
       console.error(\`[\${index + 1}/\${items.length}] \${item.partNumber} 실패\`, error);
+      if (error.uncertain) return;
     }
   }
 
@@ -1874,6 +1841,10 @@ function buildAddCartScript(items) {
         } catch (error) {
           failures.push({ item, error: error.message });
           console.error("재시도 실패", item, error);
+          if (error.uncertain) {
+            delete window.__webikeCartSplitterRetry;
+            return;
+          }
         }
       }
       console.log("재시도 후 남은 실패: " + failures.length + "개");
