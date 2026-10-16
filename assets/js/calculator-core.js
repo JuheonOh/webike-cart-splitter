@@ -1214,6 +1214,11 @@
   function normalizeManualProducts(rows) {
     const products = [];
     const errors = [];
+    let invalidField = null;
+    const addError = (rowIndex, field, message) => {
+      errors.push(`${rowIndex + 1}행 ${message}`);
+      if (!invalidField) invalidField = { rowIndex, field };
+    };
 
     if (!Array.isArray(rows)) return { products, errors: ["상품 목록 형식이 올바르지 않습니다."] };
     if (rows.length > GROUPING_LIMITS.maxProducts) {
@@ -1230,13 +1235,13 @@
 
       if (!hasAnyValue) return;
 
-      if (!code) errors.push(`${rowIndex + 1}행 상품번호를 입력해 주세요.`);
-      if (quantity < 1) errors.push(`${rowIndex + 1}행 수량은 1 이상이어야 합니다.`);
-      else if (!Number.isInteger(quantity)) errors.push(`${rowIndex + 1}행 수량은 정수여야 합니다.`);
+      if (!code) addError(rowIndex, "code", "상품번호를 입력해 주세요.");
+      if (quantity < 1) addError(rowIndex, "quantity", "수량은 1 이상이어야 합니다.");
+      else if (!Number.isInteger(quantity)) addError(rowIndex, "quantity", "수량은 정수여야 합니다.");
       if (quantity > GROUPING_LIMITS.maxQuantityPerProduct) {
-        errors.push(`${rowIndex + 1}행 수량은 ${GROUPING_LIMITS.maxQuantityPerProduct} 이하여야 합니다.`);
+        addError(rowIndex, "quantity", `수량은 ${GROUPING_LIMITS.maxQuantityPerProduct} 이하여야 합니다.`);
       }
-      if (unitJpy <= 0) errors.push(`${rowIndex + 1}행 단가 JPY는 1 이상이어야 합니다.`);
+      if (unitJpy <= 0) addError(rowIndex, "unitJpy", "단가 JPY는 1 이상이어야 합니다.");
       if (!code || !Number.isInteger(quantity) || quantity < 1 || quantity > GROUPING_LIMITS.maxQuantityPerProduct || unitJpy <= 0) return;
 
       const product = {
@@ -1252,7 +1257,7 @@
       products.push(product);
     });
 
-    return { products, errors };
+    return { products, errors, invalidField };
   }
 
   function manualRowsFromProducts(products) {

@@ -596,6 +596,7 @@ const manualResult = api.normalizeManualProducts([
   { code: "B-002", name: "", quantity: "1", unitJpy: "250" },
 ]);
 assert.strictEqual(manualResult.errors.length, 0);
+assert.strictEqual(manualResult.invalidField, null);
 assert.deepStrictEqual(manualResult.products.map((item) => item.totalJpy), [3000, 250]);
 assert.strictEqual(manualResult.products[1].name, "B-002");
 
@@ -610,10 +611,18 @@ assert.deepStrictEqual(invalidManualResult.errors, [
   "2행 수량은 1 이상이어야 합니다.",
   "3행 단가 JPY는 1 이상이어야 합니다.",
 ]);
+assert.deepStrictEqual(invalidManualResult.invalidField, { rowIndex: 0, field: "code" });
+const laterInvalidPrice = api.normalizeManualProducts([
+  { code: "", name: "", quantity: "", unitJpy: "" },
+  { code: "VALID", quantity: 1, unitJpy: 100 },
+  { code: "BAD-PRICE", quantity: 1, unitJpy: 0 },
+]);
+assert.deepStrictEqual(laterInvalidPrice.invalidField, { rowIndex: 2, field: "unitJpy" });
 for (const quantity of [0.5, 1.5, "1.5", ".5", "1e-1"]) {
   const invalidFraction = api.normalizeManualProducts([{ code: "FRACTION", quantity, unitJpy: 15000 }]);
   assert.deepStrictEqual(invalidFraction.products, [], "fractional quantity must not become a different order quantity");
   assert.strictEqual(invalidFraction.errors.length, 1);
+  assert.deepStrictEqual(invalidFraction.invalidField, { rowIndex: 0, field: "quantity" });
   assert.throws(() => api.cartProductFromRow(makeFakeRow({
     dataset: { sku: "FRACTION", quantity: String(quantity), unitPrice: "15000" },
   }), 0), /정수/);

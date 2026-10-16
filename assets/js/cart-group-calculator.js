@@ -211,7 +211,13 @@ function readManualProducts() {
     quantity: row.querySelector(".manual-quantity")?.value,
     unitJpy: row.querySelector(".manual-unit-jpy")?.value,
   }));
-  return normalizeManualProducts(rows);
+  const result = normalizeManualProducts(rows);
+  if (result.invalidField) {
+    const { rowIndex, field } = result.invalidField;
+    const selector = { code: ".manual-code", quantity: ".manual-quantity", unitJpy: ".manual-unit-jpy" }[field];
+    result.invalidControl = document.querySelectorAll("#manualRows tr")[rowIndex]?.querySelector(selector);
+  }
+  return result;
 }
 
 function plainString(value) {
@@ -373,7 +379,7 @@ function renderSummary(products, recommendation, settings) {
     <section class="summary" aria-label="요약">
       <div class="metric"><span>추출 상품</span><b>${products.length}종</b><small>${recommendation.atoms.length}개 단위 계산</small></div>
       <div class="metric"><span>전체 상품가</span><b>${money(recommendation.totalJpy)} JPY</b><small>약 ${money(totalUsd, 2)} USD</small></div>
-      <div class="metric"><span>150달러 한도</span><b>${money(Math.floor(settings.limitJpy))} JPY</b><small>${money(limitKrw)}원</small></div>
+      <div class="metric"><span>${money(settings.limitUsd, Number.isInteger(settings.limitUsd) ? 0 : 2)}달러 한도</span><b>${money(Math.floor(settings.limitJpy))} JPY</b><small>${money(limitKrw)}원</small></div>
       <div class="metric"><span>주문 분할</span><b class="${statusClass}">${statusText}</b><small>${orderGroups.length || "-"}개 주문${taxableCount ? ` · 과세 예상 ${taxableCount}개` : ""}</small></div>
     </section>
     ${exactSearchFallback ? `
@@ -409,6 +415,7 @@ function renderProducts(products) {
           <button type="button" class="secondary compact" data-action="copy-products-to-manual">직접 입력으로 가져오기</button>
         </div>
       </div>
+      <div id="productEditError" class="error-box" role="alert"></div>
       <p id="productEditDirtyNotice" class="dirty-notice" role="status" hidden>
         수량이나 단가가 바뀌었습니다. 주문 그룹, 내보내기, 스크립트를 다시 만들려면 수정 반영을 누르세요.
       </p>
@@ -750,9 +757,9 @@ function renderGroups(recommendation, settings, progress = {}) {
   }).join("");
 
   const taxableNotice = recommendation.taxableGroups?.length
-    ? `<p class="warn">${escapeHtml(recommendation.message || "개당 한도 초과 품목을 과세 예상 주문으로 분리했습니다.")}</p>`
+    ? `<p class="warn">${escapeHtml(recommendation.message || "개당 한도 초과 품목을 과세 예상 주문으로 분리했습니다.")}</p><p class="subtle">과세 예상 주문을 먼저 표시했습니다. 통관 절차가 긴 주문부터 진행하세요.</p>`
     : "";
-  return `<section class="group-grid"><h2>추천 주문 그룹</h2>${taxableNotice}<p class="subtle">과세 예상 주문을 먼저 표시했습니다. 통관 절차가 긴 주문부터 진행하세요.</p>${cards}</section>`;
+  return `<section class="group-grid"><h2>추천 주문 그룹</h2>${taxableNotice}${cards}</section>`;
 }
 
 function getSettings() {
@@ -928,24 +935,24 @@ function setInputMode(mode) {
   clearError();
 }
 
-function showError(message) {
-  const errorBox = $("#errorBox");
+function showError(message, control = null, errorBox = $("#errorBox")) {
+  clearError();
   errorBox.textContent = message;
   errorBox.style.display = "block";
-  const activeControl = document.activeElement?.matches?.("input, textarea")
-    ? document.activeElement
-    : (getInputMode() === "html" ? $("#cartHtml") : document.querySelector("#manualRows input"));
-  if (activeControl) {
-    activeControl.setAttribute("aria-invalid", "true");
-    activeControl.setAttribute("aria-errormessage", "errorBox");
+  if (control) {
+    control.setAttribute("aria-invalid", "true");
+    control.setAttribute("aria-errormessage", errorBox.id);
+    control.focus();
   }
+  errorBox.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
 function clearError() {
-  const errorBox = $("#errorBox");
-  errorBox.textContent = "";
-  errorBox.style.display = "none";
-  document.querySelectorAll('[aria-errormessage="errorBox"]').forEach((control) => {
+  document.querySelectorAll(".error-box").forEach((errorBox) => {
+    errorBox.textContent = "";
+    errorBox.style.display = "none";
+  });
+  document.querySelectorAll('[aria-errormessage="errorBox"], [aria-errormessage="productEditError"]').forEach((control) => {
     control.removeAttribute("aria-invalid");
     control.removeAttribute("aria-errormessage");
   });
@@ -1020,7 +1027,7 @@ function copyLatestProductsToManual() {
   }
   const editResult = readResultProductEdits();
   if (editResult.errors.length) {
-    showError(editResult.errors[0]);
+    showError(editResult.errors[0], editResult.invalidControl, $("#productEditError"));
     setExportEnabled(false);
     return;
   }
@@ -1156,7 +1163,13 @@ function readResultProductEdits() {
       unitJpy: row.querySelector(".result-product-unit-jpy")?.value,
     };
   });
-  return normalizeManualProducts(rows);
+  const result = normalizeManualProducts(rows);
+  if (result.invalidField) {
+    const { rowIndex, field } = result.invalidField;
+    const selector = { quantity: ".result-product-quantity", unitJpy: ".result-product-unit-jpy" }[field];
+    result.invalidControl = document.querySelectorAll(".result-product-table tbody tr")[rowIndex]?.querySelector(selector);
+  }
+  return result;
 }
 
 function updateEditedProductSubtotal(row) {
@@ -1197,7 +1210,7 @@ function applyProductEdits() {
 
   const editResult = readResultProductEdits();
   if (editResult.errors.length) {
-    showError(editResult.errors[0]);
+    showError(editResult.errors[0], editResult.invalidControl, $("#productEditError"));
     setExportEnabled(false);
     return;
   }
@@ -1213,7 +1226,7 @@ function applyProductEdits() {
 function applyBulkPasteToManual() {
   const result = manualRowsFromPastedText($("#bulkPasteInput").value);
   if (result.errors.length) {
-    showError(result.errors[0]);
+    showError(result.errors[0], $("#bulkPasteInput"));
     return;
   }
   fillManualInputRows(result.rows);
@@ -1249,23 +1262,23 @@ function analyze() {
   if (inputMode === "html") {
     const html = $("#cartHtml").value.trim();
     if (!html) {
-      showError("분석할 HTML을 붙여넣어 주세요.");
+      showError("분석할 HTML을 붙여넣어 주세요.", $("#cartHtml"));
       return;
     }
     try {
       products = parseProducts(html);
     } catch (error) {
-      showError(error.message);
+      showError(error.message, $("#cartHtml"));
       return;
     }
     if (!products.length) {
-      showError("상품 행을 찾지 못했습니다. table-cart 영역의 HTML을 붙여넣었는지 확인해 주세요.");
+      showError("상품 행을 찾지 못했습니다. table-cart 영역의 HTML을 붙여넣었는지 확인해 주세요.", $("#cartHtml"));
       return;
     }
   } else {
     const manualResult = readManualProducts();
     if (manualResult.errors.length) {
-      showError(manualResult.errors[0]);
+      showError(manualResult.errors[0], manualResult.invalidControl);
       return;
     }
     products = manualResult.products;
