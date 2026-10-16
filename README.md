@@ -65,7 +65,6 @@ JPY 한도 = 면세 기준 USD * USD 수입환율 / JPY 수입환율
 - `index.html`: GitHub Pages 진입점이며 Vite MPA 빌드 입력
 - `cart_group_calculator.html`: 공개 계산기 URL
 - `webike_quote_wizard.html`: 공개 Webike 견적 마법사 URL
-- `styleguide.html`: 개발자용 디자인 시스템/컴포넌트 확인 직접 경로. 공개 메인 메뉴에는 노출하지 않는다.
 - `src/`: Vue/Vite 화면, 공유 내비게이션, 디자인 시스템 소스
 - `assets/css/cart-group-calculator.css`: 계산기 스타일과 기존 공개 asset 경로 호환 레이어
 - `assets/js/delimited-core.js`: 계산기와 마법사가 공유하는 CSV/TSV 파서
@@ -86,7 +85,7 @@ JPY 한도 = 면세 기준 USD * USD 수입환율 / JPY 수입환율
 - `tests/update_exchange_rates.test.js`: 관세청 API 프록시·직접 조회 JSON과 기존 고시환율 HTML 파싱 검증
 - `tests/quote_result.test.js`: 마법사 견적 결과와 측정/추천 그룹 일치 검증
 - `tests/artifact_audit.test.js`: 배포 파일, 참조 경로, 환율 스키마·최신성 검증
-- `tests/e2e_dist.test.js`: 빌드된 공개 화면, Vue 브리지, 계산기와 마법사 흐름 검증
+- `tests/e2e_dist.test.js`: 빌드된 공개 화면, 반응형 UI, 계산기와 마법사 흐름 검증
 - `기록/20260506_webike_주문그룹_자동화_설계안.md`: 향후 자동화 설계안
 
 
