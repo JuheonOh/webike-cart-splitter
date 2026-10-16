@@ -4,10 +4,12 @@ Webike 장바구니 상품가를 관세청 과세환율 기준으로 나누고, 
 
 모든 사용자 기능은 계산기와 주문 마법사 웹 화면에서 제공합니다. 로그인, 주문, 결제는 자동화하지 않으며 공개 URL은 기존 `index.html`, `cart_group_calculator.html`, `webike_quote_wizard.html` 경로를 유지합니다.
 
+로컬 개발에는 Node.js 20.19 이상(20.x) 또는 22.12 이상과 npm이 필요합니다.
+
 
 ## 사용 방법
 
-1. 로컬에서는 `cart_group_calculator.html`을 브라우저에서 연다. GitHub Pages 배포 후에는 저장소 Pages URL로 접속한다.
+1. 로컬에서는 `npm ci` 후 `npm run dev`를 실행하고 터미널에 표시된 주소로 접속한다. GitHub Pages 배포 후에는 저장소 Pages URL로 접속한다.
 2. 입력 방식을 선택한다.
    - `장바구니 HTML`: Webike 장바구니 페이지에서 상품 테이블 HTML을 복사해 붙여넣는다.
    - `직접 입력`: 상품번호, 상품명, 수량, 단가 JPY를 행 단위로 입력한다.
@@ -24,6 +26,8 @@ Webike 장바구니 상품가를 관세청 과세환율 기준으로 나누고, 
 10. 필요하면 `XLSX 내보내기`로 결과를 저장한다. `추출상품` 시트의 `상품URL` 값은 클릭 가능한 링크로 저장된다.
 
 입력한 면세 기준, USD/JPY 수입환율, 최대 주문 수, 수량 분할 설정은 브라우저에 저장되어 다음 실행 때 복원됩니다.
+
+계산기 HTML 파일을 직접 여는 방식은 일부 계산 기능만 확인하는 호환 용도입니다. 공유 내비게이션과 자동환율은 로컬 개발 서버에서 사용하세요.
 
 ## 환율 자동 갱신
 
@@ -45,9 +49,10 @@ Webike 장바구니 상품가를 관세청 과세환율 기준으로 나누고, 
 - `deploy-pages` 워크플로우는 `npm ci`로 잠금 파일 기준 의존성을 설치하고, `schedule`/`workflow_dispatch`에서는 환율 JSON을 갱신한 뒤 전체 검증을 통과한 데이터만 커밋·배포한다.
 - 배포 대상은 `npm run build`가 생성한 Vite `dist/` 산출물이다. 수동 static-copy artifact 구성은 사용하지 않는다.
 - 배포 전 `npm test`, `npm run build`, `npm run test:artifact`, `npm run test:e2e:install`, `npm run test:e2e`를 순서대로 실행한다. `npm run test:e2e`는 빌드된 `dist/` 산출물을 대상으로 한다.
+- `main` 대상 Pull Request는 `verify-pr` 워크플로우에서 같은 릴리스 검증을 실행한다. 이 작업은 저장소 읽기 권한만 사용하며 배포하지 않는다.
 
 
-## 계산 기준
+## 주문 그룹 계산기의 계산 기준
 
 - 배송비, 포인트, 쿠폰은 계산하지 않는다.
 - 장바구니에 표시된 상품가 또는 직접 입력한 단가 JPY 기준으로만 계산한다.
@@ -59,6 +64,8 @@ JPY 한도 = 면세 기준 USD * USD 수입환율 / JPY 수입환율
 
 - 같은 상품 수량 분할 허용을 켜면 수량 4개 상품은 1개 단위로 다른 주문 그룹에 배치될 수 있다.
 - 안전한 브라우저 계산을 위해 상품 500개, 상품별 수량 1,000개, 분할 계산 단위 10,000개, 최대 주문 20개로 제한한다.
+
+주문 마법사는 별도로 Webike에서 측정한 배송비를 반영해 단일/분할 주문의 예상 총비용을 비교합니다.
 
 ## 현재 파일
 
@@ -72,6 +79,7 @@ JPY 한도 = 면세 기준 USD * USD 수입환율 / JPY 수입환율
 - `assets/js/calculator-grouping.js`: 주문 그룹 추천 알고리즘
 - `assets/js/exchange-rate-policy.js`: 환율 데이터 스키마, 적용기간, 신선도 공통 검증
 - `assets/js/cart-group-calculator.js`: 계산기 화면 동작과 이벤트 연결
+- `assets/js/cart-script-core.js`: 생성 스크립트가 공유하는 장바구니 수량 확인과 안전한 재시도 판정
 - `assets/js/cost-comparison-core.js`: 단일/분할 주문 비용 비교와 실측 배송비 비교 로직
 - `assets/js/quote-result-core.js`: 견적 결과 버전, 상품 ID, 배송 그룹 일치 검증
 - `data/exchange-rates.json`: GitHub Pages에서 읽는 USD/JPY 수입환율 데이터
@@ -79,11 +87,13 @@ JPY 한도 = 면세 기준 USD * USD 수입환율 / JPY 수입환율
 - `package.json`: npm 검증/빌드/배포 보조 명령
 - `package-lock.json`: `npm ci`가 사용하는 결정적 의존성 잠금 파일
 - `.github/workflows/deploy-pages.yml`: 환율 JSON 자동 갱신, Vite `dist/` 빌드, Pages 배포 워크플로우
+- `.github/workflows/verify-pr.yml`: `main` 병합 전 단위 테스트, 빌드, 배포 산출물, 브라우저 E2E 검증
 - `tests/cart_group_calculator.test.js`: 계산 그룹, XLSX 생성, 직접 입력 정규화, CSV/TSV 붙여넣기, 결과 HTML escape 검증
 - `tests/cost_comparison.test.js`: 브라우저 주문 마법사가 사용하는 단일/분할 비용 비교 검증
 - `tests/e2e_cart_group_calculator.test.js`: Playwright 기반 직접 입력, 그룹 스크립트 복사, 수정 반영 필요 UI 검증
 - `tests/update_exchange_rates.test.js`: 관세청 API 프록시·직접 조회 JSON과 기존 고시환율 HTML 파싱 검증
 - `tests/quote_result.test.js`: 마법사 견적 결과와 측정/추천 그룹 일치 검증
+- `tests/generated_scripts.test.js`: 모의 Webike 응답으로 생성 견적·장바구니 스크립트의 요청과 실패 처리 검증
 - `tests/artifact_audit.test.js`: 배포 파일, 참조 경로, 환율 스키마·최신성 검증
 - `tests/e2e_dist.test.js`: 빌드된 공개 화면, 반응형 UI, 계산기와 마법사 흐름 검증
 - `기록/20260506_webike_주문그룹_자동화_설계안.md`: 향후 자동화 설계안
@@ -155,11 +165,10 @@ npm run test:e2e:source
 - Playwright에서 직접 입력, 그룹별 스크립트 복사, 수정 반영 필요 알림이 동작하는지 확인
 - 견적 결과의 출처/버전/상품 ID/측정 그룹이 다르면 마법사 다음 단계를 차단하는지 확인
 
-## cleanup / AI-slop 승인 게이트
+## 코드 정리 기준
 
-- 이번 Vue/Vite MPA 마이그레이션에서는 후보별 명시 승인이 없는 AI-slop 정리 후보를 action하지 않는다.
-- standalone 생성 스크립트 중복 로직은 기존 출력/저장/복사 동작 보존을 우선해 sync-risk hold로 남긴다.
-- 삭제는 참조가 없다는 증거와 전체 검증이 모두 있을 때만 strict deletion으로 진행한다.
+- 사용하지 않는 코드 삭제는 소스, 테스트, 설정, 생성 문자열을 포함한 전체 참조 확인과 릴리스 검증을 근거로 한다.
+- 복사해 실행하는 생성 스크립트는 외부 모듈 없이 동작해야 한다. 겉으로 비슷한 코드도 출력·저장·복사 동작을 확인하기 전에는 합치지 않는다.
 
 ## 방향
 
