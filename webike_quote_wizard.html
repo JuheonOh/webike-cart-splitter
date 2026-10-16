@@ -7,18 +7,19 @@
   <style>
     :root {
       color-scheme: light;
-      --bg: #f5f7fb;
-      --panel: #ffffff;
-      --line: #d9e0ea;
-      --text: #172033;
-      --muted: #667085;
-      --primary: #1769aa;
-      --primary-strong: #0c4f86;
-      --success: #0f7a4f;
-      --danger: #bf2f38;
-      --warn: #9a6200;
-      --soft: #eaf3fb;
-      --radius: 8px;
+      --bg: var(--wc-bg, #f4f7fb);
+      --panel: var(--wc-surface, #ffffff);
+      --line: var(--wc-line, #d7e1ec);
+      --text: var(--wc-text, #172033);
+      --muted: var(--wc-muted, #667085);
+      --primary: var(--wc-primary, #1264a3);
+      --primary-strong: var(--wc-primary-strong, #0c4f86);
+      --success: var(--wc-success, #087443);
+      --danger: var(--wc-danger, #b42318);
+      --warn: var(--wc-warn, #b54708);
+      --soft: var(--wc-surface-soft, #eef5fb);
+      --radius: var(--wc-radius, 10px);
+      --control-height: var(--wc-control-height, 44px);
     }
 
     * {
@@ -29,7 +30,7 @@
       margin: 0;
       background: var(--bg);
       color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-family: Arial, "Noto Sans KR", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       line-height: 1.5;
     }
 
@@ -91,6 +92,7 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
+      min-height: var(--control-height);
     }
 
     button:hover:not(:disabled),
@@ -101,6 +103,16 @@
     button:disabled {
       opacity: 0.5;
       cursor: not-allowed;
+    }
+
+    button:focus-visible,
+    input:focus-visible,
+    textarea:focus-visible,
+    select:focus-visible,
+    a:focus-visible,
+    summary:focus-visible {
+      outline: 3px solid rgba(18, 100, 163, 0.28);
+      outline-offset: 2px;
     }
 
     button.secondary {
@@ -135,6 +147,11 @@
       background: #fff;
       color: var(--text);
       padding: 9px 10px;
+    }
+
+    input,
+    select {
+      min-height: var(--control-height);
     }
 
     textarea {
@@ -207,6 +224,30 @@
       padding: 10px;
     }
 
+    .steps__summary {
+      display: none;
+    }
+
+    .steps__buttons {
+      display: grid;
+    }
+
+    .step-progress-track {
+      height: 6px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #e5ebf3;
+    }
+
+    .step-progress-track span {
+      display: block;
+      width: 20%;
+      height: 100%;
+      border-radius: inherit;
+      background: var(--primary);
+      transition: width 180ms ease;
+    }
+
     .step-button {
       width: 100%;
       display: grid;
@@ -220,6 +261,7 @@
       text-align: left;
       border-radius: 7px;
       font-weight: 700;
+      min-height: 48px;
     }
 
     .step-button:hover:not(:disabled),
@@ -286,6 +328,75 @@
       gap: 8px;
       align-items: center;
       margin-top: 14px;
+    }
+
+    .guidance {
+      margin-bottom: 16px;
+      padding: 14px;
+      border: 1px solid #cbe0f4;
+      border-radius: var(--radius);
+      background: #f6fbff;
+    }
+
+    .guidance strong {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .guidance ol {
+      display: grid;
+      gap: 6px;
+      margin: 0;
+      padding-left: 22px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .file-control {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: var(--control-height);
+    }
+
+    .file-picker {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: var(--control-height);
+      margin: 0;
+      padding: 9px 14px;
+      border-radius: 7px;
+      background: #eef2f6;
+      color: #25324b;
+      cursor: pointer;
+    }
+
+    .file-name,
+    .field-note {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .field-note {
+      min-height: var(--control-height);
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #f8fafc;
+      overflow-wrap: anywhere;
+    }
+
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
     }
 
     .table-wrap {
@@ -493,9 +604,76 @@
         position: static;
       }
 
+      .steps__summary {
+        display: grid;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+
+      .steps__summary-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .steps__summary-count {
+        color: var(--primary-strong);
+        font-weight: 800;
+      }
+
+      .steps__buttons {
+        grid-template-columns: repeat(5, minmax(44px, 1fr));
+        gap: 6px;
+      }
+
+      .step-button {
+        display: flex;
+        justify-content: center;
+        padding: 8px;
+      }
+
+      .step-button > span:last-child {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+      }
+
+      .content {
+        display: flex;
+        flex-direction: column;
+      }
+
+      .step-panel {
+        order: 1;
+      }
+
+      .settings-panel {
+        order: 2;
+      }
+
+      .button-row > button,
+      .button-row > .button-link {
+        flex: 1 1 100%;
+      }
+
+      .file-control {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
       .next-action {
         align-items: stretch;
         flex-direction: column;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .step-progress-track span {
+        transition: none;
       }
     }
   </style>
@@ -509,36 +687,46 @@
       <h1>Webike 주문 마법사</h1>
       <p class="subtle">CSV 입력부터 배송비 견적, 단일/분할 총비용 비교, 장바구니 담기까지 순서대로 진행합니다.</p>
     </div>
-    <a class="subtle" href="cart_group_calculator.html">기존 계산기 열기</a>
+    <a class="subtle" href="cart_group_calculator.html">빠른 분할 계산기로 전환</a>
   </header>
-  <div id="production-feature-root" data-page="wizard"></div>
 
   <div class="wizard">
     <nav class="steps" aria-label="진행 단계">
-      <button type="button" class="step-button active" data-step-target="1">
-        <span class="step-number">1</span>
-        <span>상품 입력</span>
-      </button>
-      <button type="button" class="step-button" data-step-target="2">
-        <span class="step-number">2</span>
-        <span>견적 스크립트</span>
-      </button>
-      <button type="button" class="step-button" data-step-target="3">
-        <span class="step-number">3</span>
-        <span>견적 결과</span>
-      </button>
-      <button type="button" class="step-button" data-step-target="4">
-        <span class="step-number">4</span>
-        <span>총비용 비교</span>
-      </button>
-      <button type="button" class="step-button" data-step-target="5">
-        <span class="step-number">5</span>
-        <span>장바구니 담기</span>
-      </button>
+      <div class="steps__summary" aria-live="polite">
+        <div class="steps__summary-row">
+          <span id="stepProgressCount" class="steps__summary-count">1/5</span>
+          <strong id="stepProgressTitle">상품 입력</strong>
+        </div>
+        <div id="stepProgressTrack" class="step-progress-track" role="progressbar" aria-label="주문 마법사 진행률" aria-valuemin="1" aria-valuemax="5" aria-valuenow="1">
+          <span></span>
+        </div>
+      </div>
+      <div class="steps__buttons">
+        <button type="button" class="step-button active" data-step-target="1" aria-label="1단계 상품 입력">
+          <span class="step-number">1</span>
+          <span>상품 입력</span>
+        </button>
+        <button type="button" class="step-button" data-step-target="2" aria-label="2단계 견적 스크립트">
+          <span class="step-number">2</span>
+          <span>견적 스크립트</span>
+        </button>
+        <button type="button" class="step-button" data-step-target="3" aria-label="3단계 견적 결과">
+          <span class="step-number">3</span>
+          <span>견적 결과</span>
+        </button>
+        <button type="button" class="step-button" data-step-target="4" aria-label="4단계 총비용 비교">
+          <span class="step-number">4</span>
+          <span>총비용 비교</span>
+        </button>
+        <button type="button" class="step-button" data-step-target="5" aria-label="5단계 장바구니 담기">
+          <span class="step-number">5</span>
+          <span>장바구니 담기</span>
+        </button>
+      </div>
     </nav>
 
     <div class="content">
-      <section class="panel">
+      <section class="panel settings-panel">
         <div class="panel-head">
           <div>
             <h2>계산 기준</h2>
@@ -582,6 +770,14 @@
             <p class="subtle">Webike 장바구니 HTML 또는 CSV/TSV 상품 목록을 입력합니다.</p>
           </div>
         </div>
+        <div class="guidance" aria-label="상품 입력 시작 방법">
+          <strong>처음 이용한다면 이렇게 시작하세요</strong>
+          <ol>
+            <li>장바구니 HTML 또는 CSV/TSV 중 준비된 형식을 선택합니다.</li>
+            <li>상품 목록을 붙여넣고 ‘상품 목록 반영’을 누릅니다.</li>
+            <li>확인된 상품으로 견적 스크립트를 만든 뒤 다음 단계를 진행합니다.</li>
+          </ol>
+        </div>
         <div class="input-tabs" role="tablist" aria-label="상품 입력 방식">
           <button type="button" class="input-tab" id="cartHtmlTab" role="tab" aria-selected="false" aria-controls="cartHtmlInputPanel" data-input-mode="html">장바구니 HTML</button>
           <button type="button" class="input-tab" id="delimitedTab" role="tab" aria-selected="true" aria-controls="delimitedInputPanel" data-input-mode="delimited">CSV/TSV</button>
@@ -593,12 +789,16 @@
         <div id="delimitedInputPanel" class="input-tab-panel" role="tabpanel" aria-labelledby="delimitedTab">
           <div class="grid">
             <div>
-              <label for="csvFile">CSV 파일</label>
-              <input id="csvFile" type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values">
+              <span class="visually-hidden" id="csvFileLabel">CSV 파일</span>
+              <div class="file-control">
+                <input class="visually-hidden" id="csvFile" type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values" aria-labelledby="csvFileLabel csvFileName">
+                <label class="file-picker" for="csvFile">CSV 파일 선택</label>
+                <span class="file-name" id="csvFileName">선택된 파일 없음</span>
+              </div>
             </div>
             <div>
-              <label for="inputHint">권장 컬럼</label>
-              <input id="inputHint" type="text" value="상품번호,수량,상품명,단가JPY,상품URL" readonly>
+              <span class="subtle" id="inputHintLabel">권장 컬럼</span>
+              <div class="field-note" role="note" aria-labelledby="inputHintLabel">상품번호, 수량, 상품명, 단가 JPY, 상품 URL</div>
             </div>
             <div class="wide">
               <label for="pasteInput">CSV/TSV 붙여넣기</label>
@@ -610,7 +810,7 @@
           <button type="button" id="parseInputButton">상품 목록 반영</button>
           <button type="button" class="secondary" id="clearInputButton">비우기</button>
         </div>
-        <div id="inputStatus" class="status-line"></div>
+        <div id="inputStatus" class="status-line" role="status" aria-live="polite"></div>
         <div id="inputPreview" class="table-wrap hidden" style="margin-top: 14px;"></div>
       </section>
 
@@ -625,7 +825,7 @@
           <button type="button" id="copyQuoteScriptButton" disabled>견적 스크립트 복사</button>
           <button type="button" class="secondary" id="showQuoteScriptButton" disabled>스크립트 보기</button>
         </div>
-        <div id="quoteScriptStatus" class="status-line"></div>
+        <div id="quoteScriptStatus" class="status-line" role="status" aria-live="polite"></div>
         <div id="quoteScriptNextAction" class="next-action hidden" role="status" aria-live="polite">
           <div>
             <b>스크립트 복사 완료</b>
@@ -649,7 +849,7 @@
         <div class="button-row">
           <button type="button" id="applyQuoteResultButton">견적 결과 반영</button>
         </div>
-        <div id="quoteResultStatus" class="status-line"></div>
+        <div id="quoteResultStatus" class="status-line" role="status" aria-live="polite"></div>
         <div id="quoteResultNextAction" class="next-action hidden" role="status" aria-live="polite">
           <div>
             <b>견적 결과 반영 완료</b>
@@ -706,6 +906,7 @@ const formatter = new Intl.NumberFormat("ko-KR");
 const FIXED_IMPORT_DUTY_RATE = 0.08;
 const FIXED_VAT_RATE = 0.1;
 const STEP_COUNT = 5;
+const STEP_TITLES = ["", "상품 입력", "견적 스크립트", "견적 결과", "총비용 비교", "장바구니 담기"];
 
 const state = {
   step: 1,
@@ -718,22 +919,6 @@ const state = {
   comparison: null,
   selectedCartStrategy: "",
 };
-function publishWizardState(surfaceState) {
-  if (typeof window === "undefined" || typeof window.CustomEvent !== "function") return;
-  window.__webikeFeatureState = window.__webikeFeatureState || {};
-  window.__webikeFeatureState["webike:wizard-state"] = surfaceState;
-  window.dispatchEvent(new CustomEvent("webike:wizard-state", { detail: { state: surfaceState } }));
-}
-
-function currentWizardSurfaceState() {
-  if (state.step >= 5 && state.comparison) return "cart-group";
-  if (state.step >= 4 && state.comparison) return "comparison";
-  if (state.step >= 3 && state.quoteResult) return "preview";
-  if (state.step >= 2 && state.quoteScript) return "script";
-  return "steps";
-}
-
-
 function toNumber(value) {
   return Number(String(value ?? "").replace(/,/g, "").trim()) || 0;
 }
@@ -759,12 +944,36 @@ function showStatus(id, type, message) {
   const element = $(id);
   element.className = `status-line ${type || ""}`;
   element.textContent = message || "";
+  element.setAttribute("role", type === "bad" ? "alert" : "status");
+  element.setAttribute("aria-live", type === "bad" ? "assertive" : "polite");
+
+  const relatedControl = id === "#inputStatus"
+    ? (state.inputMode === "html" ? $("#cartHtmlInput") : $("#pasteInput"))
+    : (id === "#quoteResultStatus" ? $("#quoteResultInput") : null);
+  if (relatedControl) {
+    if (type === "bad") {
+      relatedControl.setAttribute("aria-invalid", "true");
+      relatedControl.setAttribute("aria-describedby", element.id);
+    } else {
+      relatedControl.removeAttribute("aria-invalid");
+      if (relatedControl.getAttribute("aria-describedby") === element.id) relatedControl.removeAttribute("aria-describedby");
+    }
+  }
 }
 
 function clearStatus(id) {
   const element = $(id);
   element.className = "status-line";
   element.textContent = "";
+  element.setAttribute("role", "status");
+  element.setAttribute("aria-live", "polite");
+  const relatedControls = id === "#inputStatus"
+    ? [$("#cartHtmlInput"), $("#pasteInput")]
+    : (id === "#quoteResultStatus" ? [$("#quoteResultInput")] : []);
+  relatedControls.forEach((control) => {
+    control?.removeAttribute("aria-invalid");
+    if (control?.getAttribute("aria-describedby") === element.id) control.removeAttribute("aria-describedby");
+  });
 }
 
 function showNextAction(id) {
@@ -1052,12 +1261,16 @@ function setStep(step, { historyMode = "push" } = {}) {
     button.classList.toggle("active", stepNumber === state.step);
     button.classList.toggle("done", canEnterStep(stepNumber + 1));
     button.disabled = !canEnterStep(stepNumber);
+    button.setAttribute("aria-current", stepNumber === state.step ? "step" : "false");
   });
   $$(".step-panel").forEach((panel) => {
     panel.classList.toggle("active", Number(panel.dataset.stepPanel) === state.step);
   });
+  $("#stepProgressCount").textContent = `${state.step}/${STEP_COUNT}`;
+  $("#stepProgressTitle").textContent = STEP_TITLES[state.step];
+  $("#stepProgressTrack").setAttribute("aria-valuenow", String(state.step));
+  $("#stepProgressTrack").querySelector("span").style.width = `${(state.step / STEP_COUNT) * 100}%`;
   writeStepHistory(state.step, historyMode);
-  publishWizardState(currentWizardSurfaceState());
   return state.step;
 }
 
@@ -2126,6 +2339,7 @@ async function handleFileInput(file) {
 }
 
 $("#csvFile").addEventListener("change", (event) => {
+  $("#csvFileName").textContent = event.target.files?.[0]?.name || "선택된 파일 없음";
   handleFileInput(event.target.files?.[0]).catch((error) => {
     showStatus("#inputStatus", "bad", error.message);
   });
@@ -2204,6 +2418,7 @@ $("#parseInputButton").addEventListener("click", async () => {
 
 $("#clearInputButton").addEventListener("click", () => {
   $("#csvFile").value = "";
+  $("#csvFileName").textContent = "선택된 파일 없음";
   $("#pasteInput").value = "";
   $("#cartHtmlInput").value = "";
   state.inputRows = [];

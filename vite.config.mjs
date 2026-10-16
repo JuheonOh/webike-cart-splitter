@@ -14,7 +14,6 @@ export default defineConfig({
         index: resolve(__dirname, "index.html"),
         cart_group_calculator: resolve(__dirname, "cart_group_calculator.html"),
         webike_quote_wizard: resolve(__dirname, "webike_quote_wizard.html"),
-        styleguide: resolve(__dirname, "styleguide.html"),
       },
     },
   },

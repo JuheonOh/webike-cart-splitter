@@ -125,15 +125,9 @@ function orderGroupsForRecommendation(recommendation) {
 function setExportEnabled(enabled) {
   const recommendation = latestAnalysis?.recommendation;
   const complete = recommendation?.complete !== false;
+  $("#exportActions").hidden = !enabled;
   $("#exportXlsxButton").disabled = !(enabled && complete);
   $("#exportCsvZipButton").disabled = !(enabled && complete && orderGroupsForRecommendation(recommendation).length);
-}
-
-function publishCalculatorState(state) {
-  if (typeof window === "undefined" || typeof window.CustomEvent !== "function") return;
-  window.__webikeFeatureState = window.__webikeFeatureState || {};
-  window.__webikeFeatureState["webike:calculator-state"] = state;
-  window.dispatchEvent(new CustomEvent("webike:calculator-state", { detail: { state } }));
 }
 
 function resetExportData() {
@@ -141,7 +135,6 @@ function resetExportData() {
   setExportEnabled(false);
   setGroupScriptButtonsEnabled(false, "다시 분석 필요");
   setProductEditDirtyNotice(false);
-  publishCalculatorState(getInputMode() === "manual" ? "manual" : "initial");
 }
 
 function markResultEditsDirty() {
@@ -149,7 +142,6 @@ function markResultEditsDirty() {
   setExportEnabled(false);
   setGroupScriptButtonsEnabled(false, "수정 반영 후 복사 가능");
   setProductEditDirtyNotice(true);
-  publishCalculatorState("dirty-disabled");
 }
 
 function downloadXlsx() {
@@ -957,19 +949,29 @@ function setInputMode(mode) {
   $("#htmlInputPanel").hidden = mode !== "html";
   $("#manualInputPanel").hidden = mode !== "manual";
   clearError();
-  publishCalculatorState(mode === "manual" ? "manual" : "initial");
 }
 
 function showError(message) {
   const errorBox = $("#errorBox");
   errorBox.textContent = message;
   errorBox.style.display = "block";
+  const activeControl = document.activeElement?.matches?.("input, textarea")
+    ? document.activeElement
+    : (getInputMode() === "html" ? $("#cartHtml") : document.querySelector("#manualRows input"));
+  if (activeControl) {
+    activeControl.setAttribute("aria-invalid", "true");
+    activeControl.setAttribute("aria-errormessage", "errorBox");
+  }
 }
 
 function clearError() {
   const errorBox = $("#errorBox");
   errorBox.textContent = "";
   errorBox.style.display = "none";
+  document.querySelectorAll('[aria-errormessage="errorBox"]').forEach((control) => {
+    control.removeAttribute("aria-invalid");
+    control.removeAttribute("aria-errormessage");
+  });
 }
 
 function updateManualRemoveButtons() {
@@ -1195,7 +1197,6 @@ function renderAnalysis(products, settings) {
     latestAnalysis = null;
     setExportEnabled(false);
     showError(recommendation.message || "상품 또는 주문 설정을 확인해 주세요.");
-    publishCalculatorState(getInputMode() === "manual" ? "manual" : "initial");
     return false;
   }
   latestAnalysis = { products, recommendation, settings };
@@ -1206,7 +1207,6 @@ function renderAnalysis(products, settings) {
     renderProducts(products),
   ].join("");
   saveDraftFromPage();
-  publishCalculatorState("analyzed");
   return true;
 }
 

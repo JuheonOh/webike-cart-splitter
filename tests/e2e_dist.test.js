@@ -13,29 +13,6 @@ try {
 
 const rootDir = path.resolve(__dirname, "..");
 const distDir = path.join(rootDir, "dist");
-const styleguideSections = [
-  "layout",
-  "panel",
-  "form",
-  "buttons",
-  "table",
-  "badge",
-  "metric",
-  "status",
-  "empty",
-  "dirty",
-  "next-action",
-  "calculator-initial",
-  "calculator-manual",
-  "calculator-analyzed",
-  "calculator-dirty-disabled",
-  "wizard-steps-1-5",
-  "wizard-status",
-  "wizard-script",
-  "wizard-preview",
-  "wizard-comparison",
-  "wizard-cart-group-states",
-];
 
 function contentType(filePath) {
   switch (path.extname(filePath)) {
@@ -102,14 +79,6 @@ async function assertPublicUrl(page, baseUrl, pathname) {
 
 async function assertPublicNav(page, currentPath) {
   await page.waitForSelector("[data-public-nav]");
-  assert.strictEqual(
-    await page.$$eval("[data-public-nav] a", (links) => links.some((link) => {
-      const href = new URL(link.getAttribute("href"), window.location.href).pathname;
-      return href.endsWith("/styleguide.html") || href.endsWith("styleguide.html");
-    })),
-    false,
-    "public nav should not expose styleguide",
-  );
   assert.ok(
     await page.$eval(
       "[data-public-nav] [data-nav-link][aria-current='page']",
@@ -127,17 +96,58 @@ async function assertPublicNav(page, currentPath) {
 async function testPublicUrlsAndNav(page, baseUrl) {
   await assertPublicUrl(page, baseUrl, "/");
   await assertPublicNav(page, "/");
+  const homeText = await page.textContent("body");
+  assert.ok(homeText.includes("어떤 도구를 선택할까요?"));
+  assert.ok(!homeText.includes("Vue 디자인 시스템"));
+  assert.ok(!homeText.includes("공개 화면"));
 
   await assertPublicUrl(page, baseUrl, "/cart_group_calculator.html");
   await assertPublicNav(page, "cart_group_calculator.html");
 
   await assertPublicUrl(page, baseUrl, "/webike_quote_wizard.html");
   await assertPublicNav(page, "webike_quote_wizard.html");
+  assert.strictEqual(await page.$$("#production-feature-root").then((elements) => elements.length), 0);
+}
+
+async function testResponsiveUxAndAccessibility(page, baseUrl) {
+  await page.setViewportSize({ width: 320, height: 800 });
+  for (const pathname of ["/", "/cart_group_calculator.html", "/webike_quote_wizard.html"]) {
+    await page.goto(`${baseUrl}${pathname}`);
+    assert.strictEqual(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      true,
+      `${pathname} should not overflow horizontally at 320px`,
+    );
+  }
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${baseUrl}/webike_quote_wizard.html#step-1`);
+  await page.waitForSelector('[data-step-panel="1"].active');
+  assert.strictEqual(await page.$eval(".steps__summary", (element) => getComputedStyle(element).display !== "none"), true);
+  const mobileOrder = await page.evaluate(() => ({
+    stepTop: document.querySelector('[data-step-panel="1"]').getBoundingClientRect().top,
+    settingsTop: document.querySelector(".settings-panel").getBoundingClientRect().top,
+  }));
+  assert.ok(mobileOrder.stepTop < mobileOrder.settingsTop, "current wizard step should precede settings on mobile");
+  assert.strictEqual(
+    await page.$$eval("[data-public-nav] [data-nav-link]", (links) => links.every((link) => link.getBoundingClientRect().height >= 44)),
+    true,
+  );
+  assert.strictEqual(await page.textContent("#csvFileName"), "선택된 파일 없음");
+
+  await page.fill("#pasteInput", "INVALID,0,Invalid item,1000,");
+  await page.click("#parseInputButton");
+  assert.strictEqual(await page.getAttribute("#inputStatus", "role"), "alert");
+  assert.strictEqual(await page.getAttribute("#pasteInput", "aria-invalid"), "true");
+  assert.strictEqual(await page.getAttribute("#pasteInput", "aria-describedby"), "inputStatus");
+
+  await page.setViewportSize({ width: 1280, height: 900 });
 }
 
 async function testCalculatorManualFlow(page, baseUrl) {
   await page.goto(`${baseUrl}/cart_group_calculator.html`);
-  await page.waitForSelector('[data-production-component="calculator-bridge"] [data-production-component="calculator-state"][data-state="initial"]');
+  await page.waitForSelector("#resultArea .empty");
+  assert.strictEqual(await page.$eval("#exportActions", (element) => element.hidden), true);
   const fallbackTextareaCleaned = await page.evaluate(async () => {
     const originalClipboard = navigator.clipboard;
     const originalExecCommand = document.execCommand;
@@ -157,7 +167,7 @@ async function testCalculatorManualFlow(page, baseUrl) {
   });
   assert.strictEqual(fallbackTextareaCleaned, true);
   await page.click("input[name='inputMode'][value='manual']");
-  await page.waitForSelector('[data-production-component="calculator-state"][data-state="manual"]');
+  await page.waitForSelector("#manualInputPanel:not([hidden])");
   await page.fill(
     "#bulkPasteInput",
     [
@@ -174,9 +184,7 @@ async function testCalculatorManualFlow(page, baseUrl) {
 
   await page.click("#analyzeButton");
   await page.waitForSelector('[data-action="copy-group-cart-script"]');
-  await page.waitForSelector('[data-production-component="calculator-state"][data-state="analyzed"]');
-  assert.strictEqual(await page.$eval('[data-production-component="calculator-state"][data-state="analyzed"]', (element) => element.textContent.includes("USD 123.40")), false);
-  assert.ok(await page.$eval('[data-production-component="calculator-state"][data-state="analyzed"]', (element) => element.textContent.includes("분석 완료")));
+  assert.strictEqual(await page.$eval("#exportActions", (element) => element.hidden), false);
 
   assert.strictEqual(await page.$$eval(".group-checks", (elements) => elements.length), 1);
   assert.strictEqual(await page.$eval("#productEditDirtyNotice", (element) => element.hidden), true);
@@ -188,7 +196,7 @@ async function testCalculatorManualFlow(page, baseUrl) {
   await page.fill(".result-product-quantity", "3");
   assert.strictEqual(await page.$eval("#productEditDirtyNotice", (element) => element.hidden), false);
   assert.strictEqual(await page.$eval('[data-action="copy-group-cart-script"]', (element) => element.disabled), true);
-  await page.waitForSelector('[data-production-component="calculator-state"][data-state="dirty-disabled"]');
+  await page.waitForSelector("#productEditDirtyNotice:not([hidden])");
 
   await page.fill(".manual-quantity", "1001");
   await page.click("#analyzeButton");
@@ -210,7 +218,7 @@ async function testCalculatorDraftRestoreAndCorruption(page, baseUrl) {
   );
   await page.click("#applyBulkPasteButton");
   await page.click("#analyzeButton");
-  await page.waitForSelector('[data-production-component="calculator-state"][data-state="analyzed"]');
+  await page.waitForSelector('[data-action="copy-group-cart-script"]');
   await page.fill(".result-product-quantity", "3");
   await page.waitForFunction(() => {
     const draft = JSON.parse(localStorage.getItem("webike-cart-splitter-draft-v1") || "null");
@@ -218,14 +226,14 @@ async function testCalculatorDraftRestoreAndCorruption(page, baseUrl) {
   });
 
   await page.reload();
-  await page.waitForSelector('[data-production-component="calculator-state"][data-state="dirty-disabled"]');
+  await page.waitForSelector("#productEditDirtyNotice:not([hidden])");
   assert.strictEqual(await page.$eval(".result-product-quantity", (input) => input.value), "3");
   assert.strictEqual(await page.$eval("#productEditDirtyNotice", (element) => element.hidden), false);
   assert.strictEqual(await page.$eval('[data-action="copy-group-cart-script"]', (element) => element.disabled), true);
 
   await page.evaluate(() => localStorage.setItem("webike-cart-splitter-draft-v1", "{broken-json"));
   await page.reload();
-  await page.waitForSelector('[data-production-component="calculator-state"][data-state="initial"]');
+  await page.waitForSelector("#resultArea .empty");
   assert.strictEqual(await page.$eval("#errorBox", (element) => getComputedStyle(element).display), "none");
   assert.strictEqual(await page.$eval("#errorBox", (element) => element.textContent), "");
   assert.strictEqual(await page.$$eval("#manualRows tr", (rows) => rows.length), 1);
@@ -286,7 +294,8 @@ async function testWizardCartHtmlInput(page, baseUrl) {
 
 async function testWizardStepGating(page, baseUrl) {
   await page.goto(`${baseUrl}/webike_quote_wizard.html#step-1`);
-  await page.waitForSelector('[data-production-component="wizard-bridge"] [data-production-component="wizard-state"][data-state="steps"]');
+  await page.waitForSelector('[data-step-panel="1"].active');
+  assert.strictEqual(await page.textContent("#stepProgressCount"), "1/5");
   await page.waitForFunction(() => !document.querySelector("#wizardExchangeRateSource").textContent.includes("확인하는 중"));
   assert.ok(await page.$eval("#wizardExchangeRateSource", (element) => element.textContent.includes("적용기간")));
   await page.waitForSelector('[data-step-panel="1"].active');
@@ -317,7 +326,7 @@ async function testWizardStepGating(page, baseUrl) {
   await page.waitForFunction(() => !document.querySelector('[data-step-target="2"]').disabled);
   assert.ok(await page.$eval("#inputPreview", (box) => box.textContent.includes("E2E Wizard Item")));
   assert.ok(await page.$eval("#inputPreview", (box) => box.textContent.includes("https://www.japan-webike.kr/products/900001.html")));
-  await page.waitForSelector('[data-production-component="wizard-state"][data-state="script"]');
+  await page.waitForSelector('[data-step-panel="2"].active');
   assert.strictEqual(await page.$eval('[data-step-target="3"]', (button) => button.disabled), false);
   const generatedQuoteScript = await page.evaluate(() => buildQuoteScript());
   assert.doesNotThrow(() => new Function(generatedQuoteScript));
@@ -385,13 +394,12 @@ async function testWizardStepGating(page, baseUrl) {
   await page.click("#applyQuoteResultButton");
   await page.waitForSelector("#quoteResultNextAction:not(.hidden)");
   assert.strictEqual(await page.$eval('[data-step-target="4"]', (button) => button.disabled), false);
-  await page.waitForSelector('[data-production-component="wizard-state"][data-state="preview"]');
+  await page.waitForSelector('[data-step-panel="3"].active');
   await page.click("#goComparisonButton");
-  await page.waitForSelector('[data-production-component="wizard-state"][data-state="comparison"]');
+  await page.waitForSelector('[data-step-panel="4"].active');
   await page.click("#goCartScriptsButton");
-  await page.waitForSelector('[data-production-component="wizard-state"][data-state="cart-group"]');
-  assert.strictEqual(await page.$eval('[data-production-component="wizard-state"][data-state="cart-group"]', (element) => element.textContent.includes("231,000원")), false);
-  assert.strictEqual(await page.$eval('[data-production-component="wizard-state"][data-state="cart-group"]', (element) => element.textContent.includes("분할 추천")), false);
+  await page.waitForSelector('[data-step-panel="5"].active');
+  assert.strictEqual(await page.textContent("#stepProgressCount"), "5/5");
   await page.click("[data-copy-cart-script]");
   await page.waitForFunction(() => window.__webikeCopiedText?.includes('"productsId": "900001"'));
   assert.strictEqual(await page.evaluate(() => window.__webikeCopiedText.includes("const items = [];")), false);
@@ -472,7 +480,6 @@ async function testWizardStepGating(page, baseUrl) {
 
 async function testWizardHashHistoryAndLockedStep(page, baseUrl) {
   await page.goto(`${baseUrl}/webike_quote_wizard.html#step-5`);
-  await page.waitForSelector('[data-production-component="wizard-bridge"] [data-production-component="wizard-state"][data-state="steps"]');
   await page.waitForSelector('[data-step-panel="1"].active');
   assert.strictEqual(await page.evaluate(() => window.location.hash), "#step-1");
   assert.strictEqual(await page.$eval('[data-step-target="5"]', (button) => button.disabled), true);
@@ -607,20 +614,11 @@ async function testWizardTaxableFirstPlan(page, baseUrl) {
   assert.ok(await page.$eval("#comparisonArea", (element) => element.textContent.includes("과세 예상 주문 1")));
   assert.ok(await page.$eval("#comparisonArea", (element) => element.textContent.includes("1,800 JPY")));
   await page.click("#goCartScriptsButton");
-  await page.waitForSelector('[data-production-component="wizard-state"][data-state="cart-group"]');
+  await page.waitForSelector('[data-step-panel="5"].active');
   const cartGroupTexts = await page.$$eval(".group-box", (boxes) => boxes.map((box) => box.textContent));
   assert.strictEqual(cartGroupTexts.length, 2);
   assert.ok(cartGroupTexts[0].includes("BIG-001"));
   assert.ok(cartGroupTexts[1].includes("SMALL-001"));
-}
-
-async function testStyleguide(page, baseUrl) {
-  await page.goto(`${baseUrl}/styleguide.html`);
-  for (const section of styleguideSections) {
-    await page.waitForSelector(`[data-styleguide-section="${section}"]`);
-  }
-  assert.strictEqual(await page.$$eval('[data-production-component="calculator-state"]', (elements) => elements.length >= 4), true);
-  assert.strictEqual(await page.$$eval('[data-production-component="wizard-state"]', (elements) => elements.length >= 6), true);
 }
 
 async function main() {
@@ -643,6 +641,7 @@ async function main() {
 
   try {
     await testPublicUrlsAndNav(page, baseUrl);
+    await testResponsiveUxAndAccessibility(page, baseUrl);
     await testCalculatorManualFlow(page, baseUrl);
     await testCalculatorDraftRestoreAndCorruption(page, baseUrl);
     await testTaxableGroupsFirst(page, baseUrl);
@@ -651,7 +650,6 @@ async function main() {
     await testWizardHashHistoryAndLockedStep(page, baseUrl);
     await testWizardPreviewDoesNotLinkifyUntrustedUrls(page, baseUrl);
     await testWizardTaxableFirstPlan(page, baseUrl);
-    await testStyleguide(page, baseUrl);
   } finally {
     await browser.close();
     await close(server);

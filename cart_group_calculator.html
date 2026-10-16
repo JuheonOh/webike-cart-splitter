@@ -11,7 +11,7 @@
 
 <main>
   <h1>관세청 과세환율 주문 그룹 계산기</h1>
-  <div id="production-feature-root" data-page="calculator"></div>
+  <p class="page-intro">장바구니를 빠르게 나누고, 각 주문이 면세 기준 안에 들어오는지 확인하세요.</p>
 
   <div class="layout">
     <section class="panel">
@@ -29,6 +29,7 @@
 
       <div id="htmlInputPanel" class="input-panel">
         <label for="cartHtml">HTML 붙여넣기</label>
+        <p class="field-help" id="cartHtmlHelp">Webike 장바구니 표 영역을 복사해 붙여넣으면 상품과 가격을 자동으로 읽습니다.</p>
         <textarea id="cartHtml" spellcheck="false" placeholder="Webike 장바구니의 table-cart HTML을 여기에 붙여넣으세요."></textarea>
       </div>
 
@@ -62,9 +63,11 @@
 
       <div class="button-row">
         <button type="button" id="analyzeButton">분석하기</button>
-        <button type="button" id="exportXlsxButton" disabled>XLSX 내보내기</button>
-        <button type="button" id="exportCsvZipButton" disabled>그룹 CSV 내보내기</button>
-        <button type="button" class="secondary" id="clearButton">초기화</button>
+        <span id="exportActions" class="button-row__group" hidden>
+          <button type="button" class="secondary" id="exportXlsxButton" disabled>XLSX 내보내기</button>
+          <button type="button" class="secondary" id="exportCsvZipButton" disabled>그룹 CSV 내보내기</button>
+        </span>
+        <button type="button" class="text-button" id="clearButton">입력 초기화</button>
       </div>
       <div id="errorBox" class="error-box" role="alert"></div>
     </section>
@@ -103,7 +106,7 @@
     </aside>
   </div>
 
-  <section id="resultArea" aria-live="polite">
+  <section id="resultArea" aria-live="polite" aria-label="분석 결과">
     <div class="empty">분석 결과가 여기에 표시됩니다.</div>
   </section>
 </main>

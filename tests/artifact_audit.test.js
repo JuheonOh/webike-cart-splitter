@@ -10,7 +10,7 @@ const {
 const rootDir = path.resolve(__dirname, "..");
 const distDir = path.join(rootDir, "dist");
 const publicPages = ["index.html", "cart_group_calculator.html", "webike_quote_wizard.html"];
-const htmlPages = [...publicPages, "styleguide.html"];
+const htmlPages = publicPages;
 
 function assertExists(relativePath) {
   assert.ok(fs.existsSync(path.join(distDir, relativePath)), `${relativePath} should exist in dist`);
@@ -60,6 +60,7 @@ function extractReferences(html) {
 }
 
 for (const page of htmlPages) assertExists(page);
+assert.ok(!fs.existsSync(path.join(distDir, "styleguide.html")), "styleguide.html should not be emitted");
 assertExists("assets");
 [
   path.join("assets", "css", "cart-group-calculator.css"),
@@ -80,12 +81,6 @@ const exchangeRateValidation = validateExchangeRateData(exchangeRates, {
   maxFutureDays: Number(process.env.EXCHANGE_RATE_MAX_FUTURE_DAYS || DEFAULT_MAX_FUTURE_DAYS),
 });
 assert.ok(exchangeRateValidation.valid, exchangeRateValidation.reason);
-
-for (const page of publicPages) {
-  const html = readDist(page);
-  assert.ok(!/<a\b[^>]*href=["'](?:\.\/)?styleguide\.html(?:[?#][^"']*)?["']/i.test(html), `${page} should not link to styleguide.html`);
-  assert.ok(!/<nav\b[^>]*data-public-nav[^>]*>[\s\S]*?styleguide\.html[\s\S]*?<\/nav>/i.test(html), `${page} public nav should not include styleguide.html`);
-}
 
 for (const page of htmlPages) {
   const html = readDist(page);
