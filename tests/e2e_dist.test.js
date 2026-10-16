@@ -188,6 +188,18 @@ async function testCalculatorManualFlow(page, baseUrl) {
   await page.click("input[name='inputMode'][value='manual']");
   await page.waitForSelector("#manualInputPanel:not([hidden])");
   await assertNoPageOverflow(page, "calculator empty manual input");
+  const inputBounds = await page.$$eval("#manualRows .manual-quantity, #manualRows .manual-unit-jpy", (inputs) => inputs.map((input) => {
+    const rect = input.getBoundingClientRect();
+    return { label: input.getAttribute("aria-label"), left: rect.left, right: rect.right, width: rect.width, viewport: innerWidth };
+  }));
+  assert.strictEqual(inputBounds.length, 2);
+  assert.deepStrictEqual(inputBounds.filter((input) => input.width <= 0 || input.left < 0 || input.right > input.viewport), [], "manual quantity and price must fit the screen without sideways scrolling");
+  await page.fill("#manualRows .manual-quantity", "2");
+  await page.fill("#manualRows .manual-unit-jpy", "1500");
+  assert.strictEqual(await page.inputValue("#manualRows .manual-quantity"), "2");
+  assert.strictEqual(await page.inputValue("#manualRows .manual-unit-jpy"), "1500");
+  assert.strictEqual(await page.$eval("#bulkPasteDetails", (details) => details.open), false, "direct input should start with the optional bulk editor collapsed");
+  await page.click("#bulkPasteDetails > summary");
   await page.fill(
     "#bulkPasteInput",
     [
@@ -205,6 +217,10 @@ async function testCalculatorManualFlow(page, baseUrl) {
 
   await page.click("#analyzeButton");
   await page.waitForSelector('[data-action="copy-group-cart-script"]');
+  await page.waitForFunction(() => {
+    const rect = document.querySelector("#resultArea").getBoundingClientRect();
+    return rect.top >= -1 && rect.top < innerHeight;
+  });
   assert.strictEqual(await page.$eval("#exportActions", (element) => element.hidden), false);
   await assertNoPageOverflow(page, "calculator analysis results");
   assert.ok(!(await page.textContent("#resultArea")).includes("과세 예상 주문을 먼저 표시"), "tax-free-only groups must not give taxable-order instructions");
@@ -269,6 +285,7 @@ async function testCalculatorDraftRestoreAndCorruption(page, baseUrl) {
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await page.click("input[name='inputMode'][value='manual']");
+  await page.click("#bulkPasteDetails > summary");
   await page.fill(
     "#bulkPasteInput",
     [
@@ -303,6 +320,7 @@ async function testCalculatorDraftRestoreAndCorruption(page, baseUrl) {
 async function testTaxableGroupsFirst(page, baseUrl) {
   await page.goto(`${baseUrl}/cart_group_calculator.html`);
   await page.click("input[name='inputMode'][value='manual']");
+  await page.click("#bulkPasteDetails > summary");
   await page.fill(
     "#bulkPasteInput",
     [

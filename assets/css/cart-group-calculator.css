@@ -36,6 +36,10 @@ h1 {
   margin: 0 0 18px;
   color: var(--muted);
 }
+.page-intro, .field-help, .note, .source, .dirty-notice, .error-box {
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
 h2 {
   margin: 0 0 12px;
   font-size: 18px;
@@ -105,7 +109,8 @@ button:disabled {
 }
 button:focus-visible,
 input:focus-visible,
-textarea:focus-visible {
+textarea:focus-visible,
+summary:focus-visible {
   outline: 3px solid rgba(18, 100, 163, .22);
   outline-offset: 1px;
 }
@@ -206,6 +211,15 @@ a { color: var(--accent); }
 .manual-table input {
   height: 36px;
 }
+.manual-field {
+  margin: 0;
+  font: inherit;
+}
+.manual-field > span {
+  display: none;
+  font-size: 13px;
+  font-weight: 700;
+}
 .result-product-table input {
   min-width: 86px;
   height: 34px;
@@ -222,7 +236,13 @@ a { color: var(--accent); }
   border-color: rgba(18, 100, 163, .7);
 }
 .bulk-paste {
-  margin-bottom: 14px;
+  margin-top: 14px;
+}
+.bulk-paste summary {
+  min-height: var(--control-height);
+  padding: 10px 0;
+  font-weight: 700;
+  cursor: pointer;
 }
 .bulk-paste textarea {
   min-height: 96px;
@@ -437,6 +457,36 @@ tr:last-child td { border-bottom: 0; }
   h1 { font-size: 22px; }
   .mode-control { width: 100%; }
   .mode-option { flex: 1 1 100%; }
+  .manual-table table {
+    display: block;
+    min-width: 0;
+  }
+  .manual-table thead { display: none; }
+  #manualRows {
+    display: grid;
+    gap: 12px;
+  }
+  #manualRows tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+  .manual-table td {
+    min-width: 0;
+    padding: 0;
+    border: 0;
+  }
+  .manual-table td:nth-child(-n + 2),
+  .manual-table td:last-child { grid-column: 1 / -1; }
+  .manual-table td:last-child { width: auto; }
+  .manual-field > span {
+    display: block;
+    margin-bottom: 6px;
+  }
+  .manual-table input { height: var(--control-height); }
   .button-row > button,
   .button-row__group > button { flex: 1 1 100%; }
 }

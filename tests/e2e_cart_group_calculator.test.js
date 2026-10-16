@@ -28,6 +28,8 @@ async function main() {
     await page.goto(pathToFileURL(path.join(__dirname, "..", "cart_group_calculator.html")).href);
     await page.waitForFunction(() => document.querySelector("#exchangeRateSource").textContent.includes("파일로 연 화면"));
     await page.click("input[name='inputMode'][value='manual']");
+    assert.strictEqual(await page.$eval("#bulkPasteDetails", (details) => details.open), false);
+    await page.click("#bulkPasteDetails > summary");
     await page.fill(
       "#bulkPasteInput",
       [

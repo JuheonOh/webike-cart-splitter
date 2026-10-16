@@ -968,10 +968,10 @@ function updateManualRemoveButtons() {
 function addManualRow(values = {}) {
   const row = document.createElement("tr");
   row.innerHTML = `
-    <td><input class="manual-code" type="text" aria-label="상품번호" placeholder="13225MY9003"><input class="manual-product-url" type="hidden"></td>
-    <td><input class="manual-name" type="text" aria-label="상품명" placeholder="HONDA OEM Ring Set"></td>
-    <td><input class="manual-quantity" type="text" inputmode="numeric" value="1" aria-label="수량"></td>
-    <td><input class="manual-unit-jpy" type="text" inputmode="numeric" aria-label="단가 JPY" placeholder="5599"></td>
+    <td><label class="manual-field"><span>상품번호 (필수)</span><input class="manual-code" type="text" aria-label="상품번호" aria-required="true" placeholder="13225MY9003"></label><input class="manual-product-url" type="hidden"></td>
+    <td><label class="manual-field"><span>상품명 (선택)</span><input class="manual-name" type="text" aria-label="상품명" placeholder="HONDA OEM Ring Set"></label></td>
+    <td><label class="manual-field"><span>수량</span><input class="manual-quantity" type="text" inputmode="numeric" value="1" aria-label="수량" aria-required="true"></label></td>
+    <td><label class="manual-field"><span>단가 (JPY, 필수)</span><input class="manual-unit-jpy" type="text" inputmode="numeric" aria-label="단가 JPY" aria-required="true" placeholder="5599"></label></td>
     <td><button type="button" class="danger compact manual-remove">삭제</button></td>
   `;
   $("#manualRows").appendChild(row);
@@ -1288,7 +1288,7 @@ function analyze() {
     }
   }
 
-  renderAnalysis(products, settings);
+  return renderAnalysis(products, settings);
 }
 
 applyStoredSettingsToForm();
@@ -1297,7 +1297,9 @@ const restoredDraft = restoreDraftToPage();
 loadExchangeRates({ applyToForm: !hasStoredSettings() && !restoredDraft });
 if (!restoredDraft) setInputMode(getInputMode());
 
-$("#analyzeButton").addEventListener("click", analyze);
+$("#analyzeButton").addEventListener("click", () => {
+  if (analyze()) $("#resultArea").scrollIntoView({ block: "start" });
+});
 $("#exportXlsxButton").addEventListener("click", downloadXlsx);
 $("#exportCsvZipButton").addEventListener("click", downloadGroupCsvZip);
 $("#resultArea").addEventListener("click", (event) => {
