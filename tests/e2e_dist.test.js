@@ -109,6 +109,7 @@ async function testPublicUrlsAndNav(page, baseUrl) {
   );
   assert.ok(!homeText.includes("Vue 디자인 시스템"));
   assert.ok(!homeText.includes("공개 화면"));
+  assert.ok(/PC/.test(homeText), "home must explain the wizard's PC browser requirement before entry");
 
   await assertPublicUrl(page, baseUrl, "/cart_group_calculator.html");
   await assertPublicNav(page, "cart_group_calculator.html");
@@ -156,7 +157,13 @@ async function testResponsiveUxAndAccessibility(page, baseUrl) {
   await page.click("#parseInputButton");
   assert.strictEqual(await page.getAttribute("#inputStatus", "role"), "alert");
   assert.strictEqual(await page.getAttribute("#pasteInput", "aria-invalid"), "true");
-  assert.strictEqual(await page.getAttribute("#pasteInput", "aria-describedby"), "inputStatus");
+  assert.ok((await page.getAttribute("#pasteInput", "aria-describedby")).split(/\s+/).includes("inputStatus"));
+  assert.ok((await page.getAttribute("#pasteInput", "aria-describedby")).split(/\s+/).includes("delimitedInputHelp"), "validation must preserve the input instructions");
+  await page.fill("#pasteInput", "CORRECTED-001");
+  await page.click("#parseInputButton");
+  await page.waitForSelector('[data-step-panel="2"].active');
+  assert.notStrictEqual(await page.getAttribute("#pasteInput", "aria-invalid"), "true");
+  assert.ok((await page.getAttribute("#pasteInput", "aria-describedby")).split(/\s+/).includes("delimitedInputHelp"), "instructions must remain linked after correcting an error");
 
   await page.setViewportSize({ width: 1280, height: 900 });
 }
@@ -420,6 +427,10 @@ async function testWizardStepGating(page, baseUrl) {
   assert.strictEqual(await page.textContent("#stepProgressCount"), "1/5");
   await page.waitForFunction(() => !document.querySelector("#wizardExchangeRateSource").textContent.includes("확인하는 중"));
   assert.ok(await page.$eval("#wizardExchangeRateSource", (element) => element.textContent.includes("적용기간")));
+  assert.ok(/PC.*브라우저/.test(await page.textContent("main > header")), "wizard must explain its PC requirement before generating a script");
+  const inputHelp = await page.$eval("#pasteInput", (input) => (input.getAttribute("aria-describedby") || "").split(/\s+/).map((id) => document.getElementById(id)?.textContent || "").join(" "));
+  assert.ok(inputHelp.includes("필수") && inputHelp.includes("선택") && /수량.*1개/.test(inputHelp), "linked input help must distinguish required, optional and default quantity fields");
+  assert.ok(await page.$eval("#cartHtmlInput", (input) => (input.getAttribute("aria-describedby") || "").split(/\s+/).some((id) => document.getElementById(id)?.textContent.trim())), "HTML input must retain linked copying instructions");
   await page.waitForSelector('[data-step-panel="1"].active');
   assert.strictEqual(await page.$eval('[data-step-target="2"]', (button) => button.disabled), true);
   assert.strictEqual(await page.$eval('[data-step-target="3"]', (button) => button.disabled), true);
@@ -440,10 +451,8 @@ async function testWizardStepGating(page, baseUrl) {
   });
   assert.strictEqual(fallbackCopyFailsClosed, true);
 
-  await page.fill(
-    "#pasteInput",
-    "E2E-001,2,E2E Wizard Item,1500,https://www.japan-webike.kr/products/900001.html",
-  );
+  const initialInput = "E2E-001,2,E2E Wizard Item,1500,https://www.japan-webike.kr/products/900001.html";
+  await page.fill("#pasteInput", initialInput);
   await page.click("#parseInputButton");
   await page.waitForFunction(() => !document.querySelector('[data-step-target="2"]').disabled);
   assert.ok(await page.$eval("#inputPreview", (box) => box.textContent.includes("E2E Wizard Item")));
@@ -473,6 +482,31 @@ async function testWizardStepGating(page, baseUrl) {
   await page.click('[data-step-target="2"]');
   await page.waitForSelector('[data-step-panel="2"].active');
   assert.strictEqual(await page.$eval("#copyQuoteScriptButton", (button) => button.disabled), false);
+  const webikeLink = await page.$eval('[data-step-panel="2"] a[href="https://www.japan-webike.kr/"]', (link) => ({
+    visible: link.getBoundingClientRect().width > 0,
+    target: link.target,
+    noopener: link.relList.contains("noopener"),
+  }));
+  assert.deepStrictEqual(webikeLink, { visible: true, target: "_blank", noopener: true }, "script instructions must offer a safe Webike entry without running the script");
+  await page.evaluate(() => {
+    window.__webikeClipboardBeforeFailure = navigator.clipboard;
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => { throw new Error("clipboard denied"); } } });
+  });
+  try {
+    await page.click("#copyQuoteScriptButton");
+    await page.waitForFunction(() => document.querySelector("#quoteScriptStatus").getAttribute("role") === "alert");
+    assert.strictEqual(await page.$eval("#quoteScriptNextAction", (element) => element.classList.contains("hidden")), false, "copy failure must retain the manual-copy path to the next step");
+    await page.click("#showQuoteScriptButton");
+    await page.waitForSelector("#quoteScriptOutput:not(.hidden)");
+    assert.ok((await page.inputValue("#quoteScriptOutput")).includes('"partNumber": "E2E-001"'));
+    await page.click("#goQuoteResultButton");
+    await page.waitForSelector('[data-step-panel="3"].active');
+  } finally {
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: window.__webikeClipboardBeforeFailure });
+      delete window.__webikeClipboardBeforeFailure;
+    });
+  }
   const currentWizardSettings = await page.evaluate(() => getSettings());
   const validQuoteResult = {
     source: "webike-cart-splitter-wizard",
@@ -525,6 +559,40 @@ async function testWizardStepGating(page, baseUrl) {
   await page.click("[data-copy-cart-script]");
   await page.waitForFunction(() => window.__webikeCopiedText?.includes('"productsId": "900001"'));
   assert.strictEqual(await page.evaluate(() => window.__webikeCopiedText.includes("const items = [];")), false);
+
+  await page.click('[data-step-target="1"]');
+  await page.setInputFiles("#csvFile", {
+    name: "parts.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from("part_number\nFILE-001"),
+  });
+  await page.waitForFunction(() => document.querySelector("#pasteInput").value === "part_number\nFILE-001");
+  assert.strictEqual(await page.textContent("#csvFileName"), "parts.csv");
+  const parseButtonText = (await page.textContent("#parseInputButton")).trim();
+  assert.ok((await page.textContent("#inputStatus")).includes(parseButtonText), "loaded files must explain that applying the list is still required");
+  for (const step of [2, 3, 4, 5]) {
+    assert.strictEqual(await page.$eval(`[data-step-target="${step}"]`, (button) => button.disabled), true, `a newly loaded, unapplied file must invalidate step ${step}`);
+  }
+  assert.strictEqual(await page.inputValue("#quoteResultInput"), "", "file changes must clear the previous quote");
+  assert.strictEqual(await page.$eval("#copyQuoteScriptButton", (button) => button.disabled), true);
+  await page.click("#parseInputButton");
+  await page.waitForSelector('[data-step-panel="2"].active');
+  const minimalFileScript = await page.evaluate(() => buildQuoteScript());
+  assert.ok(minimalFileScript.includes('"partNumber": "FILE-001"'), "a single product-number column is enough to request a quote");
+  assert.ok(minimalFileScript.includes('"quantity": 1'), "omitted quantity must default to one");
+  await page.click('[data-step-target="1"]');
+  await page.fill("#pasteInput", "EDIT-001");
+  assert.strictEqual(await page.$eval('[data-step-target="2"]', (button) => button.disabled), true, "unapplied edits must disable a stale script");
+  assert.strictEqual(await page.$eval("#copyQuoteScriptButton", (button) => button.disabled), true);
+  assert.strictEqual(await page.inputValue("#quoteScriptOutput"), "");
+  assert.ok((await page.textContent("#inputStatus")).includes(parseButtonText));
+  await page.fill("#pasteInput", initialInput);
+  await page.click("#parseInputButton");
+  await page.waitForSelector('[data-step-panel="2"].active');
+  await page.click('[data-step-target="3"]');
+  await page.fill("#quoteResultInput", JSON.stringify(validQuoteResult));
+  await page.click("#applyQuoteResultButton");
+  assert.strictEqual(await page.$eval('[data-step-target="4"]', (button) => button.disabled), false);
 
   await page.selectOption("#shippingService", "SEA");
   assert.strictEqual(await page.$eval('[data-step-target="4"]', (button) => button.disabled), true);
@@ -790,6 +858,7 @@ async function main() {
       await page.setViewportSize({ width, height: 844 });
       await testCalculatorManualFlow(page, baseUrl);
       await testWizardCartHtmlInput(page, baseUrl);
+      await testWizardStepGating(page, baseUrl);
       await testWizardTaxableFirstPlan(page, baseUrl);
     }
   } finally {

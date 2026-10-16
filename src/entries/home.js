@@ -16,7 +16,7 @@ const App = {
             action: () => h(Badge, { label: "배송비 제외" }),
             default: () => h(DsButton, { label: "계산기 열기", href: "cart_group_calculator.html" }),
           }),
-          h(Panel, { title: "Webike 주문 마법사", description: "Webike 배송비 견적을 받아 한 번에 주문할 때와 나눌 때의 총비용을 비교합니다." }, {
+          h(Panel, { title: "Webike 주문 마법사", description: "PC의 Webike 페이지에서 견적을 받아 배송비·예상 세금을 포함한 총비용을 비교합니다." }, {
             action: () => h(Badge, { label: "배송비 포함" }),
             default: () => h(DsButton, { label: "주문 마법사 열기", href: "webike_quote_wizard.html" }),
           }),

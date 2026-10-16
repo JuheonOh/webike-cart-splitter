@@ -332,17 +332,17 @@
       margin-top: 14px;
     }
 
+    .subtle, .guidance, .next-action {
+      word-break: keep-all;
+      overflow-wrap: break-word;
+    }
+
     .guidance {
       margin-bottom: 16px;
       padding: 14px;
       border: 1px solid #cbe0f4;
       border-radius: var(--radius);
       background: #f6fbff;
-    }
-
-    .guidance strong {
-      display: block;
-      margin-bottom: 6px;
     }
 
     .guidance ol {
@@ -697,7 +697,7 @@
   <header>
     <div>
       <h1>Webike 주문 마법사</h1>
-      <p class="subtle">배송비와 예상 세금을 포함해 한 번에 주문할지, 나눠 주문할지 비교하세요.</p>
+      <p class="subtle">배송비·예상 세금을 포함한 총비용을 비교합니다. 견적 조회와 장바구니 담기는 PC 브라우저에서 진행합니다.</p>
     </div>
     <a class="subtle" href="cart_group_calculator.html">빠른 분할 계산기로 전환</a>
   </header>
@@ -779,16 +779,8 @@
         <div class="panel-head">
           <div>
             <h2>1단계. 상품 입력</h2>
-            <p class="subtle">상품번호 또는 Webike 상품 URL이 필요합니다.</p>
+            <p class="subtle">상품 목록을 입력하고 ‘상품 목록 반영’을 누르면 견적 단계로 이동합니다.</p>
           </div>
-        </div>
-        <div class="guidance" aria-label="상품 입력 시작 방법">
-          <strong>상품 목록 넣는 방법</strong>
-          <ol>
-            <li>입력 형식을 선택하세요.</li>
-            <li>파일을 선택하거나 목록을 붙여넣으세요.</li>
-            <li>‘상품 목록 반영’을 누르세요.</li>
-          </ol>
         </div>
         <div class="input-tabs" role="tablist" aria-label="상품 입력 방식">
           <button type="button" class="input-tab" id="cartHtmlTab" role="tab" aria-selected="false" aria-controls="cartHtmlInputPanel" data-input-mode="html">장바구니 HTML</button>
@@ -796,25 +788,27 @@
         </div>
         <div id="cartHtmlInputPanel" class="input-tab-panel" role="tabpanel" aria-labelledby="cartHtmlTab" hidden>
           <label for="cartHtmlInput">HTML 붙여넣기</label>
-          <textarea id="cartHtmlInput" spellcheck="false" placeholder="Webike 장바구니의 table-cart HTML을 여기에 붙여넣으세요."></textarea>
+          <p id="cartHtmlInputHelp" class="subtle">Webike 장바구니의 상품 표 HTML을 붙여넣으세요. HTML 복사가 어렵다면 CSV/TSV에서 상품번호를 입력할 수 있습니다.</p>
+          <textarea id="cartHtmlInput" aria-describedby="cartHtmlInputHelp" spellcheck="false" placeholder="Webike 장바구니의 상품 표 HTML"></textarea>
         </div>
         <div id="delimitedInputPanel" class="input-tab-panel" role="tabpanel" aria-labelledby="delimitedTab">
           <div class="grid">
             <div>
-              <span class="visually-hidden" id="csvFileLabel">CSV 파일</span>
+              <span class="visually-hidden" id="csvFileLabel">CSV/TSV 파일</span>
               <div class="file-control">
                 <input class="visually-hidden" id="csvFile" type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values" aria-labelledby="csvFileLabel csvFileName">
-                <label class="file-picker" for="csvFile">CSV 파일 선택</label>
+                <label class="file-picker" for="csvFile">CSV/TSV 파일 선택</label>
                 <span class="file-name" id="csvFileName">선택된 파일 없음</span>
               </div>
             </div>
             <div>
-              <span class="subtle" id="inputHintLabel">입력 항목</span>
+              <span class="subtle" id="inputHintLabel">열 순서</span>
               <div class="field-note" role="note" aria-labelledby="inputHintLabel">상품번호, 수량, 상품명, 단가 JPY, 상품 URL</div>
             </div>
             <div class="wide">
               <label for="pasteInput">CSV/TSV 붙여넣기</label>
-              <textarea id="pasteInput" spellcheck="false" placeholder="상품번호,수량,상품명,단가JPY,상품URL&#10;34901KY2702,2,헤드라이트 밸브,,"></textarea>
+              <p id="delimitedInputHelp" class="subtle">필수: 상품번호 또는 상품 URL. 수량을 비우면 1개이며, 상품명·단가는 선택입니다. 엑셀에서 복사한 표도 붙여넣을 수 있습니다.</p>
+              <textarea id="pasteInput" aria-describedby="delimitedInputHelp" spellcheck="false" placeholder="상품번호,수량,상품명,단가JPY,상품URL&#10;34901KY2702,2,헤드라이트 밸브,,"></textarea>
             </div>
           </div>
         </div>
@@ -830,22 +824,30 @@
         <div class="panel-head">
           <div>
             <h2>2단계. Webike 견적 스크립트</h2>
-            <p class="subtle">스크립트를 복사해 Webike 페이지의 개발자 도구 Console에서 실행하세요.</p>
+            <p class="subtle">상품 정보와 배송비를 조회하는 스크립트입니다.</p>
           </div>
+        </div>
+        <div class="guidance" aria-label="Webike 견적 실행 방법">
+          <ol>
+            <li>‘견적 스크립트 복사’를 누르세요.</li>
+            <li>PC에서 Webike를 열고, 브라우저 개발자 도구의 Console 탭에 붙여넣어 실행하세요.</li>
+            <li>표시된 견적 결과 JSON을 복사해 다음 단계에 붙여넣으세요.</li>
+          </ol>
         </div>
         <div class="button-row">
           <button type="button" id="copyQuoteScriptButton" disabled>견적 스크립트 복사</button>
+          <a class="button-link" href="https://www.japan-webike.kr/" target="_blank" rel="noopener noreferrer">Webike 열기</a>
           <button type="button" class="secondary" id="showQuoteScriptButton" disabled>스크립트 보기</button>
         </div>
         <div id="quoteScriptStatus" class="status-line" role="status" aria-live="polite"></div>
         <div id="quoteScriptNextAction" class="next-action hidden" role="status" aria-live="polite">
           <div>
-            <b>스크립트 복사 완료</b>
-            <p>실행 후 표시되는 견적 결과 JSON을 복사하세요.</p>
+            <b>Webike에서 실행한 뒤</b>
+            <p>견적 결과 JSON을 복사했다면 다음 단계로 이동하세요.</p>
           </div>
           <button type="button" id="goQuoteResultButton">견적 결과 붙여넣기로 이동</button>
         </div>
-        <textarea id="quoteScriptOutput" class="hidden" readonly style="margin-top: 14px;"></textarea>
+        <textarea id="quoteScriptOutput" class="hidden" aria-label="Webike 견적 스크립트" readonly style="margin-top: 14px;"></textarea>
       </section>
 
       <section class="panel step-panel" data-step-panel="3">
@@ -854,7 +856,6 @@
             <h2>3단계. 견적 결과 붙여넣기</h2>
             <p class="subtle">복사한 JSON을 붙여넣고 ‘견적 결과 반영’을 누르세요.</p>
           </div>
-          <a class="button-link" href="https://www.japan-webike.kr/" target="_blank" rel="noopener noreferrer">Webike 열기</a>
         </div>
         <label for="quoteResultInput">견적 결과 JSON</label>
         <textarea id="quoteResultInput" spellcheck="false" placeholder="{ ... }"></textarea>
@@ -951,6 +952,20 @@ function escapeHtml(value) {
   }[char]));
 }
 
+function setControlStatus(control, statusId, invalid) {
+  if (!control) return;
+  const descriptions = new Set((control.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean));
+  if (invalid) {
+    control.setAttribute("aria-invalid", "true");
+    descriptions.add(statusId);
+  } else {
+    control.removeAttribute("aria-invalid");
+    descriptions.delete(statusId);
+  }
+  if (descriptions.size) control.setAttribute("aria-describedby", [...descriptions].join(" "));
+  else control.removeAttribute("aria-describedby");
+}
+
 function showStatus(id, type, message) {
   const element = $(id);
   element.className = `status-line ${type || ""}`;
@@ -961,15 +976,7 @@ function showStatus(id, type, message) {
   const relatedControl = id === "#inputStatus"
     ? (state.inputMode === "html" ? $("#cartHtmlInput") : $("#pasteInput"))
     : (id === "#quoteResultStatus" ? $("#quoteResultInput") : null);
-  if (relatedControl) {
-    if (type === "bad") {
-      relatedControl.setAttribute("aria-invalid", "true");
-      relatedControl.setAttribute("aria-describedby", element.id);
-    } else {
-      relatedControl.removeAttribute("aria-invalid");
-      if (relatedControl.getAttribute("aria-describedby") === element.id) relatedControl.removeAttribute("aria-describedby");
-    }
-  }
+  setControlStatus(relatedControl, element.id, type === "bad");
 }
 
 function clearStatus(id) {
@@ -981,10 +988,7 @@ function clearStatus(id) {
   const relatedControls = id === "#inputStatus"
     ? [$("#cartHtmlInput"), $("#pasteInput")]
     : (id === "#quoteResultStatus" ? [$("#quoteResultInput")] : []);
-  relatedControls.forEach((control) => {
-    control?.removeAttribute("aria-invalid");
-    if (control?.getAttribute("aria-describedby") === element.id) control.removeAttribute("aria-describedby");
-  });
+  relatedControls.forEach((control) => setControlStatus(control, element.id, false));
 }
 
 function showNextAction(id) {
@@ -2319,6 +2323,7 @@ async function handleFileInput(file) {
   const text = await file.text();
   $("#pasteInput").value = text;
   setInputMode("delimited");
+  invalidateInputRows("파일을 불러왔습니다. ‘상품 목록 반영’을 눌러 확인하세요.");
 }
 
 $("#csvFile").addEventListener("change", (event) => {
@@ -2360,6 +2365,22 @@ function resetWizardDerivedState() {
   renderCartScripts();
 }
 
+function invalidateInputRows(message) {
+  state.inputRows = [];
+  resetWizardDerivedState();
+  renderInputPreview();
+  showStatus("#inputStatus", "warn", message);
+  setStep(1, { historyMode: "replace" });
+}
+
+["pasteInput", "cartHtmlInput"].forEach((id) => {
+  $(`#${id}`).addEventListener("input", () => {
+    if (state.inputRows.length) {
+      invalidateInputRows("상품 목록이 바뀌었습니다. ‘상품 목록 반영’을 다시 눌러 주세요.");
+    }
+  });
+});
+
 function refreshQuoteScript({ reportError = false } = {}) {
   const errors = validateWizardSettings(getSettings());
   if (!state.inputRows.length || errors.length) {
@@ -2373,6 +2394,7 @@ function refreshQuoteScript({ reportError = false } = {}) {
   state.quoteScript = buildQuoteScript();
   $("#copyQuoteScriptButton").disabled = false;
   $("#showQuoteScriptButton").disabled = false;
+  showNextAction("#quoteScriptNextAction");
   return true;
 }
 
@@ -2418,9 +2440,7 @@ $("#copyQuoteScriptButton").addEventListener("click", async () => {
   try {
     await copyText(state.quoteScript);
     showStatus("#quoteScriptStatus", "ok", "견적 스크립트를 복사했습니다.");
-    showNextAction("#quoteScriptNextAction");
   } catch {
-    hideNextAction("#quoteScriptNextAction");
     showStatus("#quoteScriptStatus", "bad", "복사에 실패했습니다. 스크립트 보기를 눌러 직접 복사해 주세요.");
   }
 });
