@@ -13,9 +13,6 @@
     jpyKrw: 9.3399,
     importDutyRate: 0.08,
     vatRate: 0.1,
-    singleShippingJpy: 0,
-    splitShippingJpy: 0,
-    fixedFeeKrw: 0,
   };
 
   function toNumber(value) {
@@ -46,9 +43,6 @@
       jpyKrw: positiveNumber(settings.jpyKrw, DEFAULT_COST_SETTINGS.jpyKrw),
       importDutyRate: normalizeRate(settings.importDutyRate, DEFAULT_COST_SETTINGS.importDutyRate),
       vatRate: normalizeRate(settings.vatRate, DEFAULT_COST_SETTINGS.vatRate),
-      singleShippingJpy: nonNegativeNumber(settings.singleShippingJpy, DEFAULT_COST_SETTINGS.singleShippingJpy),
-      splitShippingJpy: nonNegativeNumber(settings.splitShippingJpy, DEFAULT_COST_SETTINGS.splitShippingJpy),
-      fixedFeeKrw: nonNegativeNumber(settings.fixedFeeKrw, DEFAULT_COST_SETTINGS.fixedFeeKrw),
     };
   }
 
@@ -124,7 +118,7 @@
       productKrw,
       shippingKrw,
       totalBeforeTaxKrw: productKrw + shippingKrw,
-      totalKrw: productKrw + shippingKrw + taxes.taxKrw + settings.fixedFeeKrw,
+      totalKrw: productKrw + shippingKrw + taxes.taxKrw,
       ...taxes,
     };
   }
@@ -172,94 +166,6 @@
     };
   }
 
-  function groupProductTotalJpy(group) {
-    return group.reduce((sum, item) => sum + toNumber(item.totalJpy), 0);
-  }
-
-  function cheapestStrategy(strategies) {
-    return strategies.filter((strategy) => strategy.available).reduce((best, strategy) => {
-      if (!best) return strategy;
-      return strategy.totals.totalKrw < best.totals.totalKrw ? strategy : best;
-    }, null);
-  }
-
-  function comparisonResult(settings, strategies, extra = {}) {
-    const single = strategies.find((strategy) => strategy.code === "single_order");
-    const split = strategies.find((strategy) => strategy.code === "split_tax_free");
-    const cheapest = cheapestStrategy(strategies);
-    const canCompare = Boolean(single?.available && split?.available);
-
-    return {
-      settings,
-      strategies,
-      cheapestCode: cheapest?.code || "",
-      differenceKrw: canCompare ? Math.abs(single.totals.totalKrw - split.totals.totalKrw) : null,
-      comparedAt: new Date().toISOString(),
-      ...extra,
-    };
-  }
-
-  function compareOrderStrategies(products, recommendation, settingsInput = {}) {
-    const settings = normalizeCostSettings(settingsInput);
-    const productJpy = productTotalJpy(products);
-    const single = summarizeStrategy("single_order", "한 번에 주문", [
-      buildShipment({
-        label: "주문 1",
-        productJpy,
-        shippingJpy: settings.singleShippingJpy,
-      }, settings),
-    ]);
-
-    const groups = Array.isArray(recommendation?.groups) ? recommendation.groups : [];
-    const taxableGroups = Array.isArray(recommendation?.taxableGroups) ? recommendation.taxableGroups : [];
-    const split = groups.length && recommendation?.complete !== false && !taxableGroups.length
-      ? summarizeStrategy("split_tax_free", "150 USD 이하 분할 주문", groups.map((group, index) => buildShipment({
-        label: `주문 ${index + 1}`,
-        productJpy: groupProductTotalJpy(group),
-        shippingJpy: settings.splitShippingJpy,
-      }, settings)))
-      : unavailableStrategy(
-        "split_tax_free",
-        "150 USD 이하 분할 주문",
-        recommendation?.oversize?.length
-          ? "단일 계산 단위가 면세 한도를 초과했습니다."
-          : "지정한 최대 주문 수 안에서 분할 그룹을 찾지 못했습니다.",
-      );
-
-    return comparisonResult(settings, [single, split], { measurementMode: "fixed_shipping" });
-  }
-
-  function normalizeMeasuredShipment(shipment, label) {
-    const products = Array.isArray(shipment?.products) ? shipment.products : [];
-    return {
-      label: shipment?.label || label,
-      productJpy: nonNegativeNumber(shipment?.productJpy || productTotalJpy(products)),
-      shippingJpy: nonNegativeNumber(shipment?.shippingJpy),
-    };
-  }
-
-  function compareMeasuredOrderStrategies(measurement = {}, settingsInput = {}) {
-    const settings = normalizeCostSettings(settingsInput);
-    const singleInput = measurement.singleShipment || measurement.single;
-    const splitInputs = Array.isArray(measurement.splitShipments) ? measurement.splitShipments : [];
-    const single = singleInput
-      ? summarizeStrategy("single_order", "한 번에 주문", [
-        buildShipment(normalizeMeasuredShipment(singleInput, "주문 1"), settings),
-      ])
-      : unavailableStrategy("single_order", "한 번에 주문", "단일 주문 배송비 실측값이 없습니다.");
-    const split = splitInputs.length
-      ? summarizeStrategy("split_tax_free", "분할 주문 (배송비 실측)", splitInputs.map((shipment, index) => (
-        buildShipment(normalizeMeasuredShipment(shipment, `주문 ${index + 1}`), settings)
-      )))
-      : unavailableStrategy(
-        "split_tax_free",
-        "분할 주문 (배송비 실측)",
-        measurement.splitUnavailableReason || "분할 주문 배송비 실측값이 없습니다.",
-      );
-
-    return comparisonResult(settings, [single, split], { measurementMode: "measured_shipping" });
-  }
-
   return {
     DEFAULT_COST_SETTINGS,
     toNumber,
@@ -275,7 +181,5 @@
     buildShipment,
     summarizeStrategy,
     unavailableStrategy,
-    compareOrderStrategies,
-    compareMeasuredOrderStrategies,
   };
 });
