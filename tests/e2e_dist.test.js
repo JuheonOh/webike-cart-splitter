@@ -93,6 +93,11 @@ async function assertPublicNav(page, currentPath) {
   );
 }
 
+async function assertNoPageOverflow(page, state) {
+  const size = await page.evaluate(() => ({ width: innerWidth, contentWidth: document.documentElement.scrollWidth }));
+  assert.ok(size.contentWidth <= size.width, `${state}: page width ${size.contentWidth}px exceeds viewport ${size.width}px`);
+}
+
 async function testPublicUrlsAndNav(page, baseUrl) {
   await assertPublicUrl(page, baseUrl, "/");
   await assertPublicNav(page, "/");
@@ -113,11 +118,19 @@ async function testResponsiveUxAndAccessibility(page, baseUrl) {
   await page.setViewportSize({ width: 320, height: 800 });
   for (const pathname of ["/", "/cart_group_calculator.html", "/webike_quote_wizard.html"]) {
     await page.goto(`${baseUrl}${pathname}`);
-    assert.strictEqual(
-      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
-      true,
-      `${pathname} should not overflow horizontally at 320px`,
-    );
+    await assertNoPageOverflow(page, `${pathname} initial state`);
+    if (pathname === "/") {
+      const brokenWords = await page.$eval(".wc-title", (title) => {
+        const text = title.firstChild;
+        return [...text.textContent.matchAll(/[가-힣]+/g)].filter((match) => {
+          const range = document.createRange();
+          range.setStart(text, match.index);
+          range.setEnd(text, match.index + match[0].length);
+          return range.getClientRects().length > 1;
+        }).map((match) => match[0]);
+      });
+      assert.deepStrictEqual(brokenWords, [], "Korean words in the home title should remain intact at 320px");
+    }
   }
 
   await page.setViewportSize({ width: 390, height: 844 });
@@ -146,6 +159,8 @@ async function testResponsiveUxAndAccessibility(page, baseUrl) {
 
 async function testCalculatorManualFlow(page, baseUrl) {
   await page.goto(`${baseUrl}/cart_group_calculator.html`);
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
   await page.waitForSelector("#resultArea .empty");
   assert.strictEqual(await page.$eval("#exportActions", (element) => element.hidden), true);
   const fallbackTextareaCleaned = await page.evaluate(async () => {
@@ -168,6 +183,7 @@ async function testCalculatorManualFlow(page, baseUrl) {
   assert.strictEqual(fallbackTextareaCleaned, true);
   await page.click("input[name='inputMode'][value='manual']");
   await page.waitForSelector("#manualInputPanel:not([hidden])");
+  await assertNoPageOverflow(page, "calculator empty manual input");
   await page.fill(
     "#bulkPasteInput",
     [
@@ -181,10 +197,21 @@ async function testCalculatorManualFlow(page, baseUrl) {
 
   assert.strictEqual(await page.$eval(".manual-code", (element) => element.value), "E2E-001");
   assert.strictEqual(await page.$eval("input[name='inputMode'][value='manual']", (element) => element.checked), true);
+  await assertNoPageOverflow(page, "calculator populated manual input");
 
   await page.click("#analyzeButton");
   await page.waitForSelector('[data-action="copy-group-cart-script"]');
   assert.strictEqual(await page.$eval("#exportActions", (element) => element.hidden), false);
+  await assertNoPageOverflow(page, "calculator analysis results");
+  assert.ok(!(await page.textContent("#resultArea")).includes("과세 예상 주문을 먼저 표시"), "tax-free-only groups must not give taxable-order instructions");
+
+  await page.fill("#limitUsd", "200");
+  await page.click("#analyzeButton");
+  const summaryLabels = await page.$$eval(".summary .metric > span", (labels) => labels.map((label) => label.textContent));
+  assert.ok(summaryLabels.some((label) => /200.*(?:달러|USD)/.test(label)), "summary must show the configured 200 USD limit");
+  assert.ok(!summaryLabels.some((label) => /150.*(?:달러|USD)/.test(label)), "summary must not retain the old 150 USD limit");
+  await page.fill("#limitUsd", "150");
+  await page.click("#analyzeButton");
 
   assert.strictEqual(await page.$$eval(".group-checks", (elements) => elements.length), 1);
   assert.strictEqual(await page.$eval("#productEditDirtyNotice", (element) => element.hidden), true);
@@ -197,6 +224,34 @@ async function testCalculatorManualFlow(page, baseUrl) {
   assert.strictEqual(await page.$eval("#productEditDirtyNotice", (element) => element.hidden), false);
   assert.strictEqual(await page.$eval('[data-action="copy-group-cart-script"]', (element) => element.disabled), true);
   await page.waitForSelector("#productEditDirtyNotice:not([hidden])");
+
+  await page.fill(".result-product-quantity", "1.5");
+  await page.click('[data-action="apply-product-edits"]');
+  const editError = await page.$eval(".result-product-quantity", (control) => {
+    const ids = `${control.getAttribute("aria-errormessage") || ""} ${control.getAttribute("aria-describedby") || ""}`.trim().split(/\s+/);
+    const errors = ids.map((id) => document.getElementById(id)).filter(Boolean);
+    return {
+      invalid: control.getAttribute("aria-invalid"),
+      messages: errors.map((error) => error.textContent),
+      focused: document.activeElement === control,
+      visibleError: errors.some((error) => {
+        const rect = error.getBoundingClientRect();
+        return getComputedStyle(error).display !== "none" && rect.bottom > 0 && rect.top < innerHeight;
+      }),
+      unrelatedInputInvalid: document.querySelector(".manual-code").getAttribute("aria-invalid"),
+    };
+  });
+  assert.strictEqual(editError.invalid, "true", "mark the edited quantity as invalid");
+  assert.ok(editError.messages.some((message) => message.includes("정수")), "link the actual quantity error to the edited input");
+  assert.ok(editError.focused || editError.visibleError, "the user must reach the invalid input or see its error without scrolling away");
+  assert.notStrictEqual(editError.unrelatedInputInvalid, "true", "do not mark the unrelated manual product code as invalid");
+  assert.strictEqual(await page.$eval('[data-action="copy-group-cart-script"]', (button) => button.disabled), true);
+  await page.fill(".result-product-quantity", "3");
+  await page.click('[data-action="apply-product-edits"]');
+  assert.strictEqual(await page.inputValue(".result-product-quantity"), "3");
+  assert.notStrictEqual(await page.getAttribute(".result-product-quantity", "aria-invalid"), "true");
+  assert.strictEqual(await page.$eval('[data-action="copy-group-cart-script"]', (button) => button.disabled), false);
+  await assertNoPageOverflow(page, "calculator corrected result edits");
 
   await page.fill(".manual-quantity", "1001");
   await page.click("#analyzeButton");
@@ -290,6 +345,7 @@ async function testWizardCartHtmlInput(page, baseUrl) {
   assert.ok(generatedQuoteScript.includes('"partNumber": "13225MY9003"'));
   assert.ok(generatedQuoteScript.includes('"quantity": 4'));
   await page.click('[data-step-target="1"]');
+  await assertNoPageOverflow(page, "wizard populated HTML preview");
   await page.fill("#cartHtmlInput", cartHtml.replace('value="4"', 'value="1.5"'));
   await page.click("#parseInputButton");
   assert.ok((await page.textContent("#inputStatus")).includes("정수"));
@@ -652,6 +708,18 @@ async function testWizardTaxableFirstPlan(page, baseUrl) {
   await page.waitForSelector("#quoteResultNextAction:not(.hidden)");
   await page.click("#goComparisonButton");
   await page.waitForSelector("#goCartScriptsButton");
+  await assertNoPageOverflow(page, "wizard populated comparison step 4");
+  if (page.viewportSize().width >= 1000) {
+    const metrics = await page.$$eval("#comparisonArea .metric span, #comparisonArea .metric b", (elements) => elements.map((element) => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      const textRects = [...range.getClientRects()];
+      const metric = element.closest(".metric").getBoundingClientRect();
+      return { text: element.textContent, lines: textRects.length, fits: textRects.every((rect) => rect.left >= metric.left - 1 && rect.right <= metric.right + 1) };
+    }));
+    assert.ok(metrics.length > 0, "comparison has visible cost metrics");
+    assert.deepStrictEqual(metrics.filter((metric) => metric.lines !== 1 || !metric.fits), [], "desktop cost labels and amounts must stay on one readable line within their metric");
+  }
   assert.ok(await page.$eval("#comparisonArea", (element) => element.textContent.includes("과세 예상 우선 주문")));
   assert.ok(await page.$eval("#comparisonArea", (element) => element.textContent.includes("과세 예상 포함")));
   assert.ok(await page.$eval("#comparisonArea", (element) => element.textContent.includes("과세 예상 주문 1")));
@@ -662,6 +730,7 @@ async function testWizardTaxableFirstPlan(page, baseUrl) {
   assert.strictEqual(cartGroupTexts.length, 2);
   assert.ok(cartGroupTexts[0].includes("BIG-001"));
   assert.ok(cartGroupTexts[1].includes("SMALL-001"));
+  await assertNoPageOverflow(page, "wizard populated cart step 5");
 }
 
 async function main() {
@@ -694,6 +763,12 @@ async function main() {
     await testWizardHashHistoryAndLockedStep(page, baseUrl);
     await testWizardPreviewDoesNotLinkifyUntrustedUrls(page, baseUrl);
     await testWizardTaxableFirstPlan(page, baseUrl);
+    for (const width of [320, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      await testCalculatorManualFlow(page, baseUrl);
+      await testWizardCartHtmlInput(page, baseUrl);
+      await testWizardTaxableFirstPlan(page, baseUrl);
+    }
   } finally {
     await browser.close();
     await close(server);
