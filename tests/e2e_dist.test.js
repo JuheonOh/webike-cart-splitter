@@ -512,7 +512,7 @@ async function testWizardStepGating(page, baseUrl) {
   assert.strictEqual(await page.$eval('[data-step-target="4"]', (button) => button.disabled), true);
   assert.strictEqual(await page.$eval('[data-step-target="5"]', (button) => button.disabled), true);
   assert.ok(await page.$eval("#comparisonArea", (element) => element.textContent.includes("먼저 견적 결과")));
-  assert.ok(await page.$eval("#cartScriptArea", (element) => element.textContent.includes("추천 그룹이 없습니다")));
+  assert.ok(await page.$eval("#cartScriptArea", (element) => element.textContent.includes("주문 그룹이 없습니다")));
   await page.selectOption("#shippingService", "STD");
 
   await page.click('[data-step-target="3"]');
