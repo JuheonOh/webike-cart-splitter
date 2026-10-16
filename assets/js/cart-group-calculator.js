@@ -1174,11 +1174,11 @@ function readResultProductEdits() {
 
 function updateEditedProductSubtotal(row) {
   if (!row) return;
-  const quantity = Math.round(toNumber(row.querySelector(".result-product-quantity")?.value));
+  const quantity = toNumber(row.querySelector(".result-product-quantity")?.value);
   const unitJpy = Math.round(toNumber(row.querySelector(".result-product-unit-jpy")?.value));
   const totalCell = row.querySelector(".result-product-total");
   if (!totalCell) return;
-  totalCell.textContent = quantity > 0 && unitJpy > 0 ? formatter.format(quantity * unitJpy) : "-";
+  totalCell.textContent = Number.isInteger(quantity) && quantity > 0 && unitJpy > 0 ? formatter.format(quantity * unitJpy) : "-";
 }
 
 function renderAnalysis(products, settings) {

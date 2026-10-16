@@ -226,6 +226,7 @@ async function testCalculatorManualFlow(page, baseUrl) {
   await page.waitForSelector("#productEditDirtyNotice:not([hidden])");
 
   await page.fill(".result-product-quantity", "1.5");
+  assert.strictEqual(await page.textContent(".result-product-total"), "-", "do not show a rounded subtotal for an invalid fractional quantity");
   await page.click('[data-action="apply-product-edits"]');
   const editError = await page.$eval(".result-product-quantity", (control) => {
     const ids = `${control.getAttribute("aria-errormessage") || ""} ${control.getAttribute("aria-describedby") || ""}`.trim().split(/\s+/);
