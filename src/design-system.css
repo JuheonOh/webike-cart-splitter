@@ -107,6 +107,8 @@ body {
   font-size: clamp(28px, 5vw, 44px);
   line-height: 1.08;
   letter-spacing: -0.03em;
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
 
 .wc-subtitle {

@@ -291,9 +291,11 @@
     .content {
       display: grid;
       gap: 14px;
+      min-width: 0;
     }
 
     .panel {
+      min-width: 0;
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: var(--radius);
@@ -528,10 +530,19 @@
     }
 
     .strategy {
+      min-width: 0;
       border: 1px solid var(--line);
       border-radius: var(--radius);
       padding: 14px;
       background: #fff;
+    }
+
+    .strategy .metric-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .strategy .metric b {
+      word-break: keep-all;
     }
 
     .strategy.recommended {
@@ -566,6 +577,7 @@
     }
 
     .group-box {
+      min-width: 0;
       border: 1px solid var(--line);
       border-radius: var(--radius);
       padding: 12px;
