@@ -102,7 +102,11 @@ async function testPublicUrlsAndNav(page, baseUrl) {
   await assertPublicUrl(page, baseUrl, "/");
   await assertPublicNav(page, "/");
   const homeText = await page.textContent("body");
-  assert.ok(homeText.includes("어떤 도구를 선택할까요?"));
+  assert.deepStrictEqual(
+    await page.$$eval("main a", (links) => links.map((link) => link.getAttribute("href"))),
+    ["cart_group_calculator.html", "webike_quote_wizard.html"],
+    "home should offer one clear entry for each tool",
+  );
   assert.ok(!homeText.includes("Vue 디자인 시스템"));
   assert.ok(!homeText.includes("공개 화면"));
 
@@ -120,7 +124,7 @@ async function testResponsiveUxAndAccessibility(page, baseUrl) {
     await page.goto(`${baseUrl}${pathname}`);
     await assertNoPageOverflow(page, `${pathname} initial state`);
     if (pathname === "/") {
-      const brokenWords = await page.$eval(".wc-title", (title) => {
+      const brokenWords = await page.$$eval(".wc-title, .wc-panel__title", (titles) => titles.flatMap((title) => {
         const text = title.firstChild;
         return [...text.textContent.matchAll(/[가-힣]+/g)].filter((match) => {
           const range = document.createRange();
@@ -128,8 +132,8 @@ async function testResponsiveUxAndAccessibility(page, baseUrl) {
           range.setEnd(text, match.index + match[0].length);
           return range.getClientRects().length > 1;
         }).map((match) => match[0]);
-      });
-      assert.deepStrictEqual(brokenWords, [], "Korean words in the home title should remain intact at 320px");
+      }));
+      assert.deepStrictEqual(brokenWords, [], "Korean words in home headings should remain intact at 320px");
     }
   }
 
