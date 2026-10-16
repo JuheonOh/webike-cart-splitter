@@ -1,14 +1,14 @@
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
-import vue from "@vitejs/plugin-vue";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig({
   base: "./",
-  plugins: [vue()],
   build: {
+    // Preserve the browser support of the previous Vite build.
+    target: ["es2020", "edge88", "firefox78", "chrome87", "safari14"],
     rollupOptions: {
       input: {
         index: resolve(__dirname, "index.html"),
